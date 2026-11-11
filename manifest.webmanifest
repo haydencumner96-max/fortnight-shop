@@ -1,0 +1,18 @@
+{
+  "name": "Fortnight Shop",
+  "short_name": "Shop",
+  "description": "Fortnight grocery list for Aldi and Woolworths, with recipes and live sync.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f3f5f2",
+  "theme_color": "#1f6b5c",
+  "lang": "en-AU",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

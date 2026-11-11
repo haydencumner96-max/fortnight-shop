@@ -1,0 +1,1523 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Fortnight Shop</title>
+<meta name="description" content="Fortnight grocery list for Aldi and Woolworths, with recipes and live sync.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="theme-color" content="#f3f5f2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#121715" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Shop">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<style>
+:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0;font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+img{max-width:100%}
+[hidden]{display:none!important}
+</style>
+<script>window.APP_VERSION="2026.11.11-1430";</script>
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.97.0"></script>
+<script src="standalone.js"></script>
+</head>
+<body>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;700&family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<style>
+/* Layout: one narrow column, sticky store switcher, aisle groups as plain lists with large tap rows, bottom sheet for editing */
+:root{
+  --bg:#f3f5f2; --surface:#ffffff; --fg:#1b2420; --muted:#66736c; --line:#dde3de;
+  --accent:#1f6b5c; --accent-soft:#dcece7; --ww:#8a5a12; --ww-soft:#f4e8d2; --rec:#5b4a8a; --rec-soft:#e9e5f4;
+  --scrim:rgba(20,28,24,.45); --warn:#9a5b00; --warn-soft:#fbeed3;
+  --display:"Familjen Grotesk",system-ui,sans-serif;
+  --body:"Atkinson Hyperlegible",system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#121715; --surface:#1a211e; --fg:#e6ece8; --muted:#94a29a; --line:#2a332f;
+  --accent:#6cc2ad; --accent-soft:#1d3530; --ww:#e0b46a; --ww-soft:#3a2e18; --rec:#b8a8ec; --rec-soft:#2b2640;
+  --scrim:rgba(0,0,0,.6); --warn:#f0b65c; --warn-soft:#3b2c12; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#121715; --surface:#1a211e; --fg:#e6ece8; --muted:#94a29a; --line:#2a332f;
+  --accent:#6cc2ad; --accent-soft:#1d3530; --ww:#e0b46a; --ww-soft:#3a2e18; --rec:#b8a8ec; --rec-soft:#2b2640;
+  --scrim:rgba(0,0,0,.6); --warn:#f0b65c; --warn-soft:#3b2c12; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:16px;line-height:1.4}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+.wrap{max-width:560px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:14px calc(48px + env(safe-area-inset-bottom,0px))}
+header h1{font-family:var(--display);font-weight:700;font-size:clamp(1.5rem,6vw,1.9rem);margin:0;letter-spacing:-.01em;text-wrap:balance}
+header p{margin:4px 0 0;color:var(--muted);font-size:.9rem}
+.sync{display:flex;align-items:center;gap:6px;font-size:.8rem!important}
+.sync::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+.sync[data-s="live"]::before{background:var(--accent)}
+.sync[data-s="ro"]::before,.sync[data-s="err"]::before{background:var(--warn)}
+.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:10px 8px;display:grid;gap:8px;margin-inline:-4px;padding-inline:4px}
+.shop-tools{display:grid;grid-template-columns:minmax(0,1fr);gap:6px;margin-top:4px}
+.bar{grid-template-columns:minmax(0,1fr)}
+form.add input{width:0}
+#import-btn{padding-inline:12px}
+#photo-wrap{display:contents}
+.tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:4px}
+.tab{font:inherit;font-family:var(--display);font-weight:700;border:0;border-radius:9px;padding:9px 4px;background:transparent;color:var(--muted);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:1px}
+.tab small{font-family:var(--body);font-weight:400;font-size:.72rem;white-space:nowrap}
+.tab .short{display:none}
+@media (max-width:460px){.tab .long{display:none}.tab .short{display:inline}.tab{font-size:.92rem;padding-inline:2px}}
+.tab[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent)}
+.tab.ww[aria-pressed="true"]{background:var(--ww-soft);color:var(--ww)}
+.tab.rec[aria-pressed="true"]{background:var(--rec-soft);color:var(--rec)}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.progress{height:4px;background:var(--line);border-radius:2px;overflow:hidden}
+.progress i{display:block;height:100%;background:var(--accent);width:0;transition:width .25s}
+.ww-mode .progress i{background:var(--ww)}
+.tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:.85rem;color:var(--muted)}
+.tools label{display:flex;align-items:center;gap:6px;cursor:pointer}
+.tools .sp{flex:1}
+.link{font:inherit;background:none;border:0;color:var(--muted);text-decoration:underline;cursor:pointer;padding:4px}
+form.add{display:flex;gap:8px}
+form.add input{flex:1;min-width:0;font:inherit;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--fg)}
+.btn{font:inherit;font-weight:700;border:0;border-radius:10px;padding:10px 16px;background:var(--accent);color:var(--surface);cursor:pointer}
+.ww-mode .btn.primary-store{background:var(--ww)}
+.btn.ghost{background:var(--surface);color:var(--fg);border:1px solid var(--line);font-weight:400}
+.btn.danger{background:transparent;color:#b3412e;border:1px solid var(--line);font-weight:400}
+.btn:disabled{opacity:.5;cursor:default}
+.pastebox{min-height:64px;border:1.5px dashed var(--line);border-radius:10px;padding:10px 12px;background:var(--bg);color:var(--muted);overflow:hidden}
+.pastebox:empty::before{content:attr(data-msg);}
+.pastebox:not([data-msg]):empty::before{content:"Long-press here and tap Paste";}
+.pastebox img{max-height:60px}
+.warn-note{color:var(--warn);background:var(--warn-soft);border-radius:10px;padding:8px 10px;margin:0}
+.filebtn{position:relative;overflow:hidden;display:inline-flex;align-items:center;justify-content:center;flex:1}
+.filebtn input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:0}
+.filebtn:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+.photo-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%}
+section{margin-top:16px}
+section h2{font-family:var(--display);font-weight:500;font-size:.78rem;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);margin:0 0 6px;display:flex;justify-content:space-between;gap:8px}
+ul{list-style:none;margin:0;padding:0;background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+li{display:flex;align-items:center;gap:8px;padding:0 4px 0 14px;border-top:1px solid var(--line);min-height:54px}
+li:first-child{border-top:0}
+li label{flex:1;min-width:0;display:flex;align-items:center;gap:12px;cursor:pointer;padding-block:10px}
+li input[type=checkbox],.rv input[type=checkbox]{appearance:none;width:22px;height:22px;flex:none;border:2px solid var(--muted);border-radius:6px;display:grid;place-items:center;cursor:pointer;margin:0}
+li input:checked,.rv input:checked{background:var(--accent);border-color:var(--accent)}
+.ww-mode li input:checked{background:var(--ww);border-color:var(--ww)}
+li input:checked::after,.rv input:checked::after{content:"";width:6px;height:11px;border:solid var(--surface);border-width:0 2.5px 2.5px 0;transform:translateY(-1px) rotate(45deg)}
+.txt{min-width:0;display:grid;gap:2px}
+.name{overflow-wrap:anywhere}
+.qty{font-weight:700;font-variant-numeric:tabular-nums;margin-right:4px}
+.note{color:var(--muted);font-size:.85rem}
+.chips{display:flex;flex-wrap:wrap;gap:4px}
+.picks{display:flex;flex-wrap:wrap;gap:6px}
+.picks button{font:inherit;font-size:.85rem;border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:999px;padding:6px 12px;cursor:pointer}
+.picks button[aria-pressed="true"]{background:var(--rec-soft);border-color:var(--rec);color:var(--rec);font-weight:700}
+.picks button[aria-pressed="true"]::before{content:"✓ "}
+.newrec{display:flex;gap:6px}
+.newrec input{flex:1;min-width:0}
+.recipe h3 input{font:inherit;font-family:var(--display);font-size:1.15rem;font-weight:700;border:0;border-bottom:1px dashed var(--line);background:transparent;color:var(--fg);padding:2px 0;min-width:0;flex:1}
+.rsearch input{font:inherit;width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--fg)}
+.rrow{padding:0;gap:0}
+.mrow{padding:0;gap:0}
+.mrow button.open{flex:1;min-width:0;font:inherit;color:inherit;background:transparent;border:0;text-align:left;display:flex;align-items:center;gap:10px;padding:12px 14px 12px 0;cursor:pointer;min-height:58px}
+.mrow .txt{flex:1}
+.mrow .name{font-weight:700}
+.mrow.made .name{color:var(--muted)}
+.rhead{min-height:0;padding:10px 14px 6px;justify-content:space-between;font-family:var(--display);font-weight:500;font-size:.75rem;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);background:var(--bg)}
+.fnav{display:flex;align-items:center;gap:8px;margin-top:14px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:6px}
+.fbtn{font:inherit;font-size:1.5rem;line-height:1;width:44px;height:44px;border:0;border-radius:10px;background:var(--rec-soft);color:var(--rec);cursor:pointer;flex:none}
+.fbtn:disabled{opacity:.35;cursor:default}
+.ftitle{flex:1;min-width:0;display:grid;text-align:center;gap:1px}
+.ftitle strong{font-family:var(--display)}
+.ftitle span{font-size:.82rem;color:var(--muted)}
+.addshop .actions{margin-top:8px}
+.setaisle{font:inherit;font-size:.78rem;font-weight:700;border:1px dashed var(--ww);background:transparent;color:var(--ww);border-radius:999px;padding:7px 9px;cursor:pointer;white-space:nowrap}
+section.unset h2{color:var(--ww)}
+.aislegrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(76px,1fr));gap:6px}
+.aislegrid button{font:inherit;font-size:.85rem;min-height:44px;border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:10px;cursor:pointer;padding:4px}
+.aislegrid button[aria-pressed="true"]{background:var(--ww-soft);border-color:var(--ww);color:var(--ww);font-weight:700}
+.mini-x{font:inherit;font-size:1.2rem;border:0;background:transparent;color:var(--muted);width:40px;align-self:stretch;cursor:pointer;flex:none}
+.addshop select{flex:1;min-width:0;width:0;font:inherit;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--fg)}
+.panel .tools{color:var(--fg)}
+.again{font-size:.8rem;font-weight:700;color:var(--rec);border:1px solid var(--rec);border-radius:999px;padding:4px 9px;flex:none}
+.madebox{display:grid;place-items:center;width:44px;height:58px;flex:none;cursor:pointer}
+.madebox input{appearance:none;width:22px;height:22px;border:2px solid var(--muted);border-radius:6px;margin:0;display:grid;place-items:center;cursor:pointer}
+.madebox input:checked{background:var(--rec);border-color:var(--rec)}
+.madebox input:checked::after{content:"";width:6px;height:11px;border:solid var(--surface);border-width:0 2.5px 2.5px 0;transform:translateY(-1px) rotate(45deg)}
+.rrow.made .name{color:var(--muted)}
+.rrow button{flex:1;min-width:0;font:inherit;color:inherit;background:transparent;border:0;width:100%;text-align:left;display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;min-height:58px}
+.rrow .txt{flex:1}
+.rrow .name{font-weight:700}
+.chev{color:var(--muted);font-size:1.4rem;line-height:1}
+.recipe-sheet{display:grid;gap:12px}
+.madebar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
+#rs-made[aria-pressed="true"]{background:var(--rec);color:var(--surface)}
+#rs-made{border-color:var(--rec)}
+.recipe-sheet h3{margin:0;display:flex;gap:10px;align-items:center}
+.recipe-sheet h3 input{font:inherit;font-family:var(--display);font-size:1.3rem;font-weight:700;border:0;border-bottom:1px dashed var(--line);background:transparent;color:var(--fg);padding:2px 0;min-width:0;flex:1}
+.recipe-sheet textarea{font:inherit;width:100%;min-height:90px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg);resize:vertical;font-size:.9rem}
+.ingchip{display:inline-flex;align-items:center;gap:2px}
+.ing .x{font:inherit;border:0;background:transparent;color:var(--muted);cursor:pointer;padding:0 0 0 4px;font-size:1rem;line-height:1}
+.ing span.d .x{text-decoration:none}
+.seg.pc{flex:none;width:150px}
+.seg.pc button{padding:7px 4px;font-size:.85rem}
+.seg.pc button[aria-pressed="true"][data-v="have"]{background:var(--line);color:var(--fg);font-weight:700}
+.seg.pc button[aria-pressed="true"][data-v="add"]{background:var(--accent-soft);color:var(--accent);font-weight:700}
+.trip{display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,1fr);align-items:center;gap:6px;font-size:.8rem;color:var(--muted)}
+.trip button{font:inherit;font-size:.85rem;white-space:nowrap;border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:999px;padding:7px 6px;cursor:pointer;min-height:38px}
+.trip button[aria-pressed="true"][data-trip="both"]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:700}
+.trip button[aria-pressed="true"][data-trip="ww"]{background:var(--ww-soft);border-color:var(--ww);color:var(--ww);font-weight:700}
+.trip-ww .tabs{grid-template-columns:repeat(3,minmax(0,1fr))}
+.from-aldi{justify-self:start;font-size:.72rem;color:var(--muted);border:1px dashed var(--line);border-radius:999px;padding:1px 8px}
+.totals{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:baseline;font-size:.85rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.totals strong{color:var(--fg);font-family:var(--display);font-size:1.05rem}
+.totals .warn{color:var(--warn)}
+.price{font-variant-numeric:tabular-nums;font-size:.9rem;white-space:nowrap;color:var(--fg)}
+li.done .price{color:var(--muted)}
+.avail{justify-self:start;font-size:.72rem;color:var(--warn);background:var(--warn-soft);border-radius:999px;padding:1px 8px}
+.prices{gap:8px}
+.pfield{display:grid;gap:4px;font-size:.82rem;color:var(--muted);border:1.5px solid transparent;border-radius:12px;padding:6px}
+.pfield em{font-style:normal;font-size:.72rem;color:var(--accent);visibility:hidden;margin-left:4px}
+.pfield.on{border-color:var(--accent);background:var(--accent-soft)}
+.pfield.on em{visibility:visible}
+#pf-ww.on{border-color:var(--ww);background:var(--ww-soft)}
+#pf-ww.on em{color:var(--ww)}
+.est-hint{font-size:.78rem;color:var(--muted)}
+.imp-tabs{display:grid;grid-template-columns:repeat(3,1fr)}
+.imp-tabs button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent);font-weight:700}
+.sheet textarea{font:inherit;width:100%;min-height:140px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg);resize:vertical}
+.chip{justify-self:start;font-size:.72rem;color:var(--rec);background:var(--rec-soft);border-radius:999px;padding:1px 8px}
+li.done .name{text-decoration:line-through;color:var(--muted)}
+.edit{font:inherit;font-size:.8rem;border:0;background:transparent;color:var(--muted);border-radius:8px;padding:10px;cursor:pointer;text-decoration:underline}
+.empty{color:var(--muted);text-align:center;padding:40px 0}
+.panel{margin-top:16px;padding:14px;border:1px dashed var(--line);border-radius:12px;font-size:.9rem;display:grid;gap:10px}
+.panel .row{display:flex;gap:8px;flex-wrap:wrap}
+/* recipes view */
+.recipe{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;display:grid;gap:10px}
+.recipe h3{font-family:var(--display);font-size:1.15rem;margin:0;display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.recipe h3 small{font-family:var(--body);font-weight:400;font-size:.8rem;color:var(--muted);white-space:nowrap}
+.ing{display:flex;flex-wrap:wrap;gap:6px}
+.ing span{font-size:.82rem;border:1px solid var(--line);border-radius:999px;padding:3px 9px}
+.ing span.w{border-color:var(--ww);color:var(--ww)}
+.ing span.d{text-decoration:line-through;color:var(--muted)}
+.recipe textarea,.field input,.field select,.field textarea{font:inherit;width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg)}
+.recipe textarea{min-height:70px;resize:vertical;font-size:.9rem}
+.legend{font-size:.8rem;color:var(--muted)}
+/* sheet */
+.scrim{position:fixed;inset:0;background:var(--scrim);z-index:20;display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:var(--surface);width:100%;max-width:560px;max-height:90%;overflow:auto;border-radius:16px 16px 0 0;padding-block:18px calc(18px + env(safe-area-inset-bottom,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:14px}
+.sheet h2{font-family:var(--display);margin:0;font-size:1.3rem}
+.field{display:grid;gap:5px;font-size:.85rem;color:var(--muted)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.stepper{display:flex;align-items:center;gap:6px}
+.stepper button{font:inherit;width:42px;height:42px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg);font-size:1.2rem;cursor:pointer;flex:none}
+.stepper input{text-align:center;font-variant-numeric:tabular-nums}
+.storepick{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.storechk{display:flex;align-items:center;gap:10px;padding:12px;border:1.5px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg);font-size:1rem;cursor:pointer;min-height:48px}
+.storechk input{appearance:none;width:22px;height:22px;flex:none;margin:0;border:2px solid var(--muted);border-radius:6px;display:grid;place-items:center;cursor:pointer}
+.storechk input:checked::after{content:"";width:6px;height:11px;border:solid var(--surface);border-width:0 2.5px 2.5px 0;transform:translateY(-2px) rotate(45deg);box-sizing:content-box}
+.storechk.on[data-v="aldi"]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:700}
+.storechk.on[data-v="aldi"] input{background:var(--accent);border-color:var(--accent)}
+.storechk.on[data-v="ww"]{border-color:var(--ww);background:var(--ww-soft);color:var(--ww);font-weight:700}
+.storechk.on[data-v="ww"] input{background:var(--ww);border-color:var(--ww)}
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:3px}
+.seg button{font:inherit;border:0;border-radius:8px;padding:8px;background:transparent;color:var(--muted);cursor:pointer}
+.seg button[aria-pressed="true"][data-v="aldi"]{background:var(--accent-soft);color:var(--accent);font-weight:700}
+.seg button[aria-pressed="true"][data-v="ww"]{background:var(--ww-soft);color:var(--ww);font-weight:700}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.actions .sp{flex:1}
+.rv{display:flex;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.rv:first-child{border-top:0}
+.rv .txt{flex:1}
+.status{font-size:.9rem;color:var(--muted)}
+.err{color:#b3412e}
+@media (max-width:380px){.grid2{grid-template-columns:1fr}}
+/* phone: 16px inputs stop iOS zooming in, bigger tap targets, no double-tap zoom delay */
+input,select,textarea,.pastebox{font-size:16px!important}
+button,label,a,.tab{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.link{padding:10px 6px;min-height:40px}
+.ing .x{padding:4px 6px;margin:-4px -6px -4px 0;font-size:1.15rem}
+.ing span{padding:5px 10px}
+.tools label{min-height:40px}
+.tools input{width:20px;height:20px}
+html.sheet-open,html.sheet-open body{overflow:hidden}
+.sheet{max-height:calc(100dvh - 24px);overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.sheet-x{position:absolute;top:8px;right:max(8px,env(safe-area-inset-right,0px));font:inherit;font-size:1.5rem;line-height:1;width:44px;height:44px;border:0;border-radius:50%;background:transparent;color:var(--muted);cursor:pointer}
+.sheet{position:relative;grid-template-columns:minmax(0,1fr)}
+.recipe-sheet{grid-template-columns:minmax(0,1fr)}
+.newrec input{width:0;font:inherit;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg)}
+.recipe-sheet h3 input{font-size:1.3rem!important}
+.seg.imp-tabs{grid-template-columns:repeat(3,1fr)}
+.sheet>h2,.sheet>.recipe-sheet>h3{padding-right:44px}
+@media (max-width:420px){
+  .rv{flex-wrap:wrap}
+  .rv .seg.pc{width:100%}
+  .actions .btn{flex:1 1 auto}
+  .actions .sp{flex-basis:100%;height:0}
+  .actions .link{order:9}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap" id="app">
+  <header>
+    <h1>Fortnight Shop</h1>
+    <p id="subhead">Next shop · Aldi first, Woolworths for the rest</p>
+    <p class="sync" id="sync" data-s="local">Saved on this device</p>
+  </header>
+
+  <div class="bar">
+    <div class="tabs" role="group" aria-label="View">
+      <button class="tab" id="tab-aldi" data-view="aldi">Aldi<small id="count-aldi"></small></button>
+      <button class="tab ww" id="tab-ww" data-view="ww"><span class="long">Woolworths</span><span class="short">Woolies</span><small id="count-ww"></small></button>
+      <button class="tab rec" id="tab-rec" data-view="rec">Recipes<small id="count-rec"></small></button>
+      <button class="tab rec" id="tab-made" data-view="made">Made<small id="count-made"></small></button>
+    </div>
+    <div class="trip" id="trip" role="group" aria-label="Shopping at">
+      <span>Shopping at</span>
+      <button type="button" data-trip="both">Aldi + Woolies</button>
+      <button type="button" data-trip="ww">Woolies only</button>
+    </div>
+    <div class="progress" id="prog-wrap"><i id="prog"></i></div>
+    <div class="totals" id="totals"></div>
+  </div>
+  <div id="shop-tools" class="shop-tools">
+    <form class="add" id="add-form">
+      <input id="add-input" placeholder="Add to Aldi…" autocomplete="off" enterkeyhint="go" aria-label="Add item">
+      <button class="btn primary-store" type="submit">Add</button>
+      <span id="photo-wrap" hidden><button class="btn ghost" id="import-btn" type="button" aria-label="Add from a photo, link or text">Import</button></span>
+    </form>
+    <div class="tools">
+      <label><input type="checkbox" id="hide-done"> Hide ticked</label>
+      <span class="sp"></span>
+      <button class="link" id="new-shop">Done shopping</button>
+    </div>
+  </div>
+
+  <div id="list"></div>
+
+  <div class="panel" id="confirm" hidden>
+    <strong>Finished this shop?</strong>
+    <p class="status" id="c-recipes"></p>
+    <label class="tools" id="c-carry-wrap" hidden><input type="checkbox" id="c-carry" checked> <span id="c-carry-txt"></span></label>
+    <p class="status">Then get the list ready for the next shop:</p>
+    <div class="row">
+      <button class="btn" id="c-clear">Remove ticked items</button>
+      <button class="btn ghost" id="c-untick">Keep everything, untick it</button>
+      <button class="btn ghost" id="c-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="scrim" id="scrim" hidden></div>
+
+<script>
+const AISLES=["Fruit & veg","Meat & deli","Dairy & drinks","Bakery","Pantry","Frozen","Household","Other"];
+const SEED_RECIPES=[
+  {name:"Laksa",notes:""},
+  {name:"Mediterranean pasta",notes:""}
+];
+const L="Laksa",P="Mediterranean pasta";
+const seed=[
+ ["Red & green capsicum","","Fruit & veg","aldi",""],["Onions","","Fruit & veg","aldi",""],["Red onion","","Fruit & veg","aldi",P],
+ ["Lemongrass","","Fruit & veg","aldi",L],["Zucchini","small, ½","Fruit & veg","aldi",P],["Cherry tomatoes","","Fruit & veg","aldi",P],
+ ["Rocket","small","Fruit & veg","aldi",P],["Basil","small","Fruit & veg","aldi",P],["Green beans","","Fruit & veg","aldi",""],
+ ["Shallots","","Fruit & veg","aldi",L],["Red chilli","","Fruit & veg","aldi",L],["Coriander","","Fruit & veg","aldi",L],
+ ["Milk","","Dairy & drinks","aldi",""],["Long life milk","","Dairy & drinks","aldi",""],["Orange juice","","Dairy & drinks","aldi",""],
+ ["Spiral pasta","","Pantry","aldi",P],["Chicken stock","","Pantry","aldi",L],["Minced garlic","jar","Pantry","aldi",""],
+ ["Coconut milk","","Pantry","aldi",L],["Hokkien noodles","","Pantry","aldi",L],["Vermicelli noodles","","Pantry","aldi",L],
+ ["Honey","","Pantry","aldi",""],["Canola oil","","Pantry","aldi",""],["Roasted peppers","","Pantry","aldi",P],
+ ["Kalamata olives","small","Pantry","aldi",P],["Sun-dried tomatoes","400g","Pantry","aldi",P],["Choc chips","","Pantry","aldi",""],
+ ["Frozen mango","","Frozen","aldi",""],
+ ["Dish soap","","Household","aldi",""],["Toilet paper","","Household","aldi",""],["Ziplock bags","","Household","aldi",""],["Alfoil","","Household","aldi",""],
+ ["Laksa paste","","Pantry","ww",L],["Sambal oelek","","Pantry","ww",L],["Sriracha","","Pantry","ww",""],["Rinse aid","","Household","ww",""]
+].map((a,i)=>({id:"s"+i,name:a[0],note:a[1],aisle:a[2],store:a[3],recipe:a[4],qty:1,done:false}));
+
+// Estimated prices in AUD per pack/each: [Aldi, how reliably Aldi stocks it, Woolworths].
+// Woolworths = Charters Towers store, mid-range to premium brand (e.g. a2, Nudie, Barilla/De Cecco, Massel, Beechworth,
+// Sandhurst, Marion's Kitchen, Kleenex, Finish), never Woolworths own brand. Fresh produce at the regular price.
+// Estimates only: neither store publishes a full price list for that store, so edit them to match the shelf.
+const PRICES={
+ "red & green capsicum":[3.5,"yes",4.5],"onions":[2.49,"yes",3.5],"red onion":[0.9,"yes",1.2],"lemongrass":[2.99,"rarely",3.5],
+ "zucchini":[0.9,"yes",1.2],"cherry tomatoes":[2.99,"yes",4.5],"rocket":[2.49,"yes",3.5],"basil":[2.49,"maybe",3.5],
+ "green beans":[3.49,"yes",4.0],"shallots":[2.29,"yes",2.9],"red chilli":[0.6,"maybe",0.6],"coriander":[2.49,"maybe",3.5],
+ "milk":[3.19,"yes",4.7],"long life milk":[1.65,"yes",3.2],"orange juice":[4.49,"yes",7.5],
+ "spiral pasta":[1.29,"yes",3.8],"chicken stock":[1.99,"yes",4.5],"minced garlic":[2.49,"yes",5.0],"coconut milk":[1.39,"yes",3.3],
+ "hokkien noodles":[1.99,"yes",3.5],"vermicelli noodles":[1.99,"maybe",3.2],"honey":[5.49,"yes",10.0],"canola oil":[4.29,"yes",6.0],
+ "roasted capsicum":[3.49,"maybe",6.0],"roasted peppers":[3.49,"maybe",6.0],"kalamata olives":[3.49,"yes",6.5],"sun-dried tomatoes":[5.49,"maybe",9.5],"choc chips":[2.69,"yes",5.5],
+ "frozen mango":[7.49,"yes",11.0],"dishwashing liquid":[2.49,"yes",6.5],"dish soap":[2.49,"yes",6.5],"toilet paper":[9.99,"yes",17.0],"ziplock bags":[2.49,"yes",5.0],"alfoil":[3.49,"yes",6.0],
+ "laksa paste":[4.5,"rarely",6.0],"sambal oelek":[3.5,"rarely",5.0],"sriracha":[5.0,"maybe",6.5],"rinse aid":[9.0,"yes",11.0]
+};
+// brands you always buy at Woolies: these override the mid-range/premium guess
+const BRAND_PREFS={"milk":"Norco 2L"};
+// the second round (mainstream brands). Untouched items on these move up to mid-range/premium too.
+const BRANDED_WW={"cherry tomatoes":4.5,"basil":3.5,"red chilli":0.6,"coriander":3.5,"milk":4.9,"long life milk":2.6,"orange juice":6.5,"spiral pasta":2.8,
+ "chicken stock":4.0,"minced garlic":4.5,"coconut milk":2.9,"hokkien noodles":3.0,"vermicelli noodles":2.8,"honey":8.5,"canola oil":5.5,"roasted capsicum":5.5,
+ "roasted peppers":5.5,"kalamata olives":5.0,"sun-dried tomatoes":7.5,"choc chips":4.5,"frozen mango":8.5,"dishwashing liquid":5.0,"dish soap":5.0,
+ "toilet paper":14.0,"ziplock bags":4.5,"alfoil":5.5,"laksa paste":4.8,"sambal oelek":4.0,"sriracha":6.0,"rinse aid":9.5};
+// the first round of Woolies estimates (Brisbane, cheapest option). Any item still on one of these gets the branded price.
+const OLD_WW={"red & green capsicum":4.5,"onions":3.5,"red onion":1.2,"lemongrass":3.5,"zucchini":1.2,"cherry tomatoes":3.9,"rocket":3.5,"basil":3.0,
+ "green beans":4.0,"shallots":2.9,"red chilli":0.5,"coriander":3.0,"milk":3.4,"long life milk":1.9,"orange juice":5.5,"spiral pasta":1.6,"chicken stock":2.5,
+ "minced garlic":3.0,"coconut milk":1.8,"hokkien noodles":2.5,"vermicelli noodles":2.6,"honey":7.0,"canola oil":5.0,"roasted peppers":4.5,"roasted capsicum":4.5,
+ "kalamata olives":4.5,"sun-dried tomatoes":6.5,"choc chips":4.5,"frozen mango":8.0,"dish soap":3.5,"dishwashing liquid":3.5,"toilet paper":12.0,"ziplock bags":3.5,
+ "alfoil":4.5,"laksa paste":4.5,"sambal oelek":3.5,"sriracha":5.0,"rinse aid":9.0};
+const KEY="fortnight-shop-v2";
+let state=null;
+try{state=JSON.parse(localStorage.getItem(KEY))}catch(e){}
+if(!state||!Array.isArray(state.items)){
+  state={items:seed,recipes:SEED_RECIPES,view:"aldi",hide:false};
+  try{ // carry over ticks from the first version
+    const old=JSON.parse(localStorage.getItem("fortnight-shop-v1"));
+    if(old&&Array.isArray(old.items)){
+      state.items=old.items.map(o=>{const s=seed.find(x=>x.id===o.id);return{...o,qty:1,recipe:s?s.recipe:""}});
+      state.hide=!!old.hide;
+    }
+  }catch(e){}
+}
+state.recipes=state.recipes||[];
+/* The shop you've already done lives in state.shops[0] ({id:"current", date, recipes:[recipe ids]}).
+   The Made tab shows those recipes; the shopping list itself is always the next shop. */
+state.shops=Array.isArray(state.shops)?state.shops:[];
+/* Woolies aisles at Charters Towers. The order below is the walking order the Woolies list follows;
+   each item's aisle is remembered by name in state.aisles (shared), so it's set once and reused. */
+const WW_AISLES=["Fruit & veg","Bakery","Deli","Meat & seafood",...Array.from({length:20},(_,k)=>"Aisle "+(k+1)),"Dairy & eggs","Freezers","Front of store"];
+state.aisles=Array.isArray(state.aisles)?state.aisles:[];
+const aisleKey=n=>"a-"+norm(n).replace(/[^a-z0-9]+/g,"-").slice(0,120);
+const memAisle=n=>{const m=state.aisles.find(x=>x.id===aisleKey(n));return m?m.aisle:"";};
+const wwAisle=i=>i.wwAisle||memAisle(i.name)||"";
+function setAisle(n,a){
+  const id=aisleKey(n), k=state.aisles.findIndex(x=>x.id===id);
+  if(!a){if(k>=0)state.aisles.splice(k,1);return;}
+  if(k<0)state.aisles.push({id,name:n,aisle:a}); else state.aisles[k]={...state.aisles[k],name:n,aisle:a};
+}
+// items can belong to several recipes
+state.items.forEach(i=>{if(!Array.isArray(i.recipes))i.recipes=i.recipe?[i.recipe]:[];delete i.recipe;});
+const has=(i,name)=>i.recipes.includes(name);
+/* Each item keeps both prices: aldiPrice and wwPrice. Its cost is the price at the store it's
+   listed under, so moving it between Aldi and Woolies changes the cost. avail = how reliably Aldi stocks it. */
+const numOrNull=v=>v==null||v===""||!isFinite(+v)?null:+v;
+function toTwoPrices(x){
+  if(!x)return x;
+  if(x.aldiPrice===undefined&&x.wwPrice===undefined){
+    // older saves had one "price" (at the listed store) and a Woolies "backup"
+    let a=null,w=numOrNull(x.backup);
+    if(x.price!=null){if(x.store==="ww")w=+x.price;else a=+x.price;}
+    const p=PRICES[String(x.name||"").toLowerCase()];
+    if(p){if(a==null)a=p[0];if(w==null)w=p[2];if(!x.avail)x.avail=p[1];}
+    x.aldiPrice=a; x.wwPrice=w;
+  }
+  delete x.price; delete x.backup;
+  if(!x.avail)x.avail="yes";
+  // swap an untouched first-round Woolies estimate for the branded Charters Towers one
+  if((x.wwBrand||0)<3){const k=String(x.name||"").toLowerCase(), p=PRICES[k];
+    const was=v=>v!=null&&x.wwPrice!=null&&Math.abs(x.wwPrice-v)<0.005;
+    if(p&&(was(OLD_WW[k])||was(BRANDED_WW[k])||(k==="milk"&&was(5.8))))x.wwPrice=p[2];
+    x.wwBrand=3;}
+  return x;
+}
+function seedPrice(x){
+  toTwoPrices(x);
+  const p=PRICES[String(x.name||"").toLowerCase()];
+  if(!p)return;
+  if(x.aldiPrice==null)x.aldiPrice=p[0];
+  if(x.wwPrice==null)x.wwPrice=p[2];
+  x.wwBrand=3;
+  if(!x.avail||x.avail==="yes")x.avail=p[1];
+}
+/* Shopping trip: "both" = Aldi trip (Aldi items at Aldi, Woolies items at Woolies);
+   "ww" = Woolies-only trip (everything from both lists bought and priced at Woolies).
+   Items keep their own store, so switching back restores the two lists. */
+const tripWW=()=>state&&state.trip==="ww";
+const effStore=x=>tripWW()?"ww":x.store;
+const priceOf=x=>x?(effStore(x)==="ww"?x.wwPrice:x.aldiPrice)??null:null;
+const otherPrice=x=>x?(x.store==="ww"?x.aldiPrice:x.wwPrice)??null:null;
+state.items.forEach(toTwoPrices);
+state.items.forEach(seedPrice);
+const low=s=>String(s).trim().toLowerCase();
+// matching key that ignores case, punctuation and simple plurals (onion = Onions)
+// Australian supermarket names: US/UK names are swapped for what's on the shelf here
+const AU_NAMES=[
+  [/\b(?:bell|sweet) peppers?\b/gi,"capsicum"],
+  [/\broasted (?:red )?peppers?\b/gi,"roasted capsicum"],
+  [/\b(?:scallions?|green onions?|spring onions?|eschall?ots?|eshall?ots?)\b/gi,"shallots"],
+  [/\bcilantro\b/gi,"coriander"],[/\barugula\b/gi,"rocket"],
+  [/\bcourgettes?\b/gi,"zucchini"],[/\baubergines?\b/gi,"eggplant"],
+  [/\bground (beef|pork|chicken|lamb|turkey|veal)\b/gi,"$1 mince"],
+  [/\bshrimps?\b/gi,"prawns"],
+  [/\b(?:heavy whipping|heavy|whipping|double) cream\b/gi,"thickened cream"],
+  [/\b(?:powdered|confectioners'?) sugar\b/gi,"icing sugar"],[/\bsuperfine sugar\b/gi,"caster sugar"],
+  [/\ball[- ]purpose flour\b/gi,"plain flour"],[/\bself[- ]rising flour\b/gi,"self-raising flour"],
+  [/\bcorn ?starch\b/gi,"cornflour"],[/\bbaking soda\b/gi,"bicarb soda"],
+  [/\bgarbanzo beans?\b/gi,"chickpeas"],[/\bbeets?\b/gi,"beetroot"],[/\brutabagas?\b/gi,"swede"],
+  [/\bromaine(?: lettuce)?\b/gi,"cos lettuce"],[/\bsnow ?peas?\b/gi,"snow peas"],
+  [/\b(?:plastic|saran) wrap\b|\bcling film\b/gi,"cling wrap"],
+  [/\b(?:alumini?um foil|tin foil|al foil|foil)\b/gi,"alfoil"],
+  [/\b(?:dish soap|dishwashing soap|dish detergent|washing[- ]up liquid)\b/gi,"dishwashing liquid"],
+  [/\b(chicken|beef|vegetable|veggie) broth\b/gi,"$1 stock"],
+  [/\bketchup\b/gi,"tomato sauce"],[/\bcandy\b/gi,"lollies"],[/\bcookies\b/gi,"biscuits"],[/\bjell-?o\b/gi,"jelly"],
+  [/\bhamburger buns?\b/gi,"burger buns"],[/\bfrench fries\b/gi,"frozen chips"],
+  [/\b(?:garbage|trash) bags?\b/gi,"bin liners"],[/\bpaper towels\b/gi,"paper towel"],
+  [/\bchil(?:i|e)\b/gi,"chilli"],[/\bchil(?:i|e)s\b/gi,"chillies"]
+];
+function auName(n){
+  let t=String(n||"").trim(); if(!t)return t;
+  for(const[re,to] of AU_NAMES)t=t.replace(re,to);
+  t=t.replace(/\balfoil alfoil\b/i,"alfoil");
+  return t.charAt(0).toUpperCase()+t.slice(1);
+}
+// ingredients that are used the same way count as one item
+const SAME_AS={
+  "shallot":"spring onion","eshallot":"spring onion","eschalot":"spring onion","eschallot":"spring onion",
+  "green onion":"spring onion","scallion":"spring onion","spring onion":"spring onion",
+  "cilantro":"coriander","courgette":"zucchini","arugula":"rocket",
+  "chili":"chilli","chile":"chilli","red chili":"red chilli","red chile":"red chilli"
+};
+const norm=s=>{const k=low(auName(s)).replace(/[^a-z0-9]+/g," ").trim().replace(/(es|s)$/,"");return SAME_AS[k]||k;};
+const findDup=(name,exceptId)=>state.items.find(i=>i.id!==exceptId&&norm(i.name)===norm(name));
+/* Quantity model: each list item keeps what each recipe needs (needs[recipe]) plus any extra
+   you added yourself (needs._own). The amount to buy is the total of those, so adding the same
+   recipe again replaces its amount instead of stacking on top. */
+const recipeSum=i=>Object.entries(i.needs||{}).reduce((a,[k,v])=>k==="_own"?a:a+(+v||0),0);
+function syncQty(i){i.needs=i.needs||{};i.qty=Math.max(1,recipeSum(i)+(+i.needs._own||0));}
+function setNeed(i,recipe,q){
+  i.needs=i.needs||{}; i.needs[recipe]=Math.max(1,+q||1);
+  if(!i.recipes.includes(recipe))i.recipes.push(recipe); syncQty(i);
+}
+function dropNeed(i,recipe){if(i.needs)delete i.needs[recipe];i.recipes=i.recipes.filter(x=>x!==recipe);syncQty(i);}
+function needsText(i){
+  const parts=Object.entries(i.needs||{}).filter(([k,v])=>k!=="_own"&&v).map(([k,v])=>`${esc(k)} ${v}`);
+  const own=+((i.needs||{})._own)||0;
+  if(own>0)parts.push(`extra ${own}`);
+  return parts.length>1||(parts.length===1&&own<=0&&recipeSum(i)!==i.qty)?parts.join(" + "):"";
+}
+// combine x into the existing list item ex without doubling up
+function mergeInto(ex,x){
+  ex.done=false; ex.needs=ex.needs||{};
+  const xr=(x.recipes||[]).filter(Boolean);
+  if(xr.length){
+    // recipe quantities: set this recipe's share, never add on top of it
+    xr.forEach((r,k)=>setNeed(ex,r,x.needs&&x.needs[r]!=null?x.needs[r]:(k===0?x.qty:1)));
+    if(x.needs&&+x.needs._own>0)ex.needs._own=(+ex.needs._own||0)+(+x.needs._own);
+  }else ex.needs._own=(+ex.needs._own||0)+(x.qty||1); // a plain extra you asked for
+  syncQty(ex);
+  if(ex.aldiPrice==null&&x.aldiPrice!=null)ex.aldiPrice=x.aldiPrice;
+  if(ex.wwPrice==null&&x.wwPrice!=null)ex.wwPrice=x.wwPrice;
+  if((!ex.avail||ex.avail==="yes")&&x.avail)ex.avail=x.avail;
+  if(!ex.note&&x.note)ex.note=x.note;
+}
+// give a brand-new item its quantity breakdown
+function initNeeds(x){
+  if(x.needs)return syncQty(x);
+  x.needs={}; const rs=(x.recipes||[]).filter(Boolean);
+  if(rs.length){rs.forEach((r,k)=>x.needs[r]=k===0?(x.qty||1):1);x.needs._own=0;}
+  else x.needs._own=x.qty||1;
+  syncQty(x);
+}
+// each recipe keeps its own saved ingredient list, so it can be reused next fortnight
+state.recipes.forEach(r=>{
+  if(!Array.isArray(r.ingredients))r.ingredients=state.items.filter(i=>has(i,r.name)).map(i=>({name:i.name,qty:i.qty||1,note:i.note||"",aisle:i.aisle,store:i.store}));
+  r.ingredients.forEach(g=>{toTwoPrices(g);seedPrice(g);});
+});
+function rememberIngredient(recName,it){
+  const r=state.recipes.find(x=>x.name===recName); if(!r)return;
+  const q=it.needs&&it.needs[recName]!=null?it.needs[recName]:(it.qty||1);
+  const ing={name:it.name,qty:q,note:it.note||"",aisle:it.aisle,store:it.store,aldiPrice:it.aldiPrice??null,wwPrice:it.wwPrice??null,avail:it.avail||"yes"};
+  if(it.wwAisle)ing.wwAisle=it.wwAisle;
+  const k=r.ingredients.findIndex(x=>norm(x.name)===norm(it.name));
+  if(k<0)r.ingredients.push(ing); else r.ingredients[k]={...r.ingredients[k],...ing,name:r.ingredients[k].name};
+}
+state.items.forEach(i=>i.name=auName(i.name));
+state.recipes.forEach(r=>r.ingredients.forEach(g=>g.name=auName(g.name)));
+/* one-off tidy of lists saved before this version: give every item a breakdown,
+   then fold any double-ups on the list (and inside recipes) into one line each */
+state.items.forEach(i=>{
+  if(i.needs)return;
+  i.needs={};
+  i.recipes.forEach(rn=>{const r=state.recipes.find(x=>x.name===rn);const g=r&&r.ingredients.find(x=>norm(x.name)===norm(i.name));i.needs[rn]=g?(g.qty||1):1;});
+  i.needs._own=Math.max(0,(i.qty||1)-recipeSum(i));
+  syncQty(i);
+});
+(()=>{
+  const out=[];
+  state.items.forEach(i=>{
+    const d=out.find(x=>norm(x.name)===norm(i.name));
+    if(!d){out.push(i);return;}
+    d.needs=d.needs||{};
+    Object.entries(i.needs||{}).forEach(([k,v])=>{if(k==="_own")d.needs._own=(+d.needs._own||0)+(+v||0);else d.needs[k]=Math.max(+d.needs[k]||0,+v||0);});
+    i.recipes.forEach(r=>{if(!d.recipes.includes(r))d.recipes.push(r)});
+    d.done=d.done&&i.done; syncQty(d);
+  });
+  state.items=out;
+  state.recipes.forEach(r=>{const o=[];r.ingredients.forEach(g=>{const d=o.find(x=>norm(x.name)===norm(g.name));if(d)d.qty=(d.qty||1)+(g.qty||1);else o.push(g);});r.ingredients=o;});
+})();
+// every change is cached on this device straight away, then sent to the shared list a moment later
+const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){} if(typeof queueSync==="function")queueSync();};
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const storeName=s=>s==="aldi"?"Aldi":"Woolworths";
+const uid=()=>"u"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+
+function ensureRecipe(name){
+  name=(name||"").trim(); if(!name)return "";
+  const hit=state.recipes.find(r=>r.name.toLowerCase()===name.toLowerCase());
+  if(hit)return hit.name;
+  state.recipes.push({id:uid(),name,notes:"",ingredients:[]}); return name;
+}
+
+const money=n=>"$"+(Math.round(n*100)/100).toFixed(2);
+const lineCost=i=>priceOf(i)!=null?priceOf(i)*(i.qty||1):null;
+// cost of everything, each item priced at the store it's listed under
+function totals(){
+  let aldi=0,ww=0,missing=0,risky=0,extra=0,split=0,wwOnly=0;
+  state.items.forEach(i=>{
+    const q=i.qty||1;
+    // both ways of shopping, so the trip switch can show the difference
+    const sp=(i.store==="ww"?i.wwPrice:i.aldiPrice), wo=i.wwPrice;
+    if(sp!=null)split+=sp*q; if(wo!=null)wwOnly+=wo*q;
+    const c=lineCost(i); if(c==null){missing++;return;}
+    if(effStore(i)==="ww")ww+=c; else aldi+=c;
+    if(!tripWW()&&i.store==="aldi"&&i.avail&&i.avail!=="yes"){risky++;if(i.wwPrice!=null)extra+=Math.max(0,(i.wwPrice-i.aldiPrice)*q);}
+  });
+  return{total:aldi+ww,aldi,ww,missing,risky,extra,split,wwOnly};
+}
+function availText(i){
+  if(tripWW()||i.store!=="aldi"||!i.avail||i.avail==="yes")return"";
+  const b=i.wwPrice!=null?` · Woolies ~${money(i.wwPrice)}`:"";
+  return i.avail==="rarely"?`Aldi rarely stocks this${b}`:`Not always at Aldi${b}`;
+}
+function render(){
+  if(tripWW()&&state.view==="aldi")state.view="ww"; // nothing to buy at Aldi on a Woolies-only trip
+  const v=state.view;
+  $("app").classList.toggle("ww-mode",v==="ww");
+  $("tab-aldi").hidden=tripWW();
+  $("app").classList.toggle("trip-ww",tripWW());
+  document.querySelectorAll("#trip [data-trip]").forEach(b=>b.setAttribute("aria-pressed",(state.trip||"both")===b.dataset.trip));
+  $("trip").hidden=!(v==="aldi"||v==="ww");
+  $("subhead").textContent=tripWW()?"Next shop · everything at Woolworths":"Next shop · Aldi first, Woolworths for the rest";
+  ["aldi","ww"].forEach(k=>{
+    const its=state.items.filter(i=>effStore(i)===k), left=its.filter(i=>!i.done).length;
+    $("count-"+k).textContent=its.length?(left?left+" to get":"all done ✓"):"empty";
+  });
+  const madeN=state.recipes.filter(r=>madeRecently(r).length).length;
+  $("count-rec").textContent=state.recipes.length+(state.recipes.length===1?" recipe":" recipes");
+  const sh=curShop(), inShop=shopRecipes();
+  $("count-made").textContent=sh&&inShop.length?`${inShop.filter(r=>madeSince(r,sh.date).length).length} of ${inShop.length}`:"none yet";
+  ["aldi","ww","rec","made"].forEach(k=>$("tab-"+k).setAttribute("aria-pressed",k===v));
+  const shop=v==="aldi"||v==="ww";
+  $("shop-tools").hidden=!shop; $("prog-wrap").hidden=v==="rec";
+  const t=totals();
+  const diff=t.wwOnly-t.split;
+  $("totals").innerHTML=tripWW()
+    ?`<span>Est. shop <strong>${money(t.total)}</strong></span><span>all at Woolies</span>
+      ${Math.abs(diff)>=0.01?`<span class="warn">${money(Math.abs(diff))} ${diff>0?"more":"less"} than an Aldi trip</span>`:""}`
+    :`<span>Est. shop <strong>${money(t.total)}</strong></span>
+    <span>Aldi ${money(t.aldi)}</span><span>Woolies ${money(t.ww)}</span>
+    ${diff>=0.01?`<span>Saves ${money(diff)} vs Woolies only</span>`:""}`;
+  $("totals").innerHTML+=`
+${t.risky?`<span class="warn">${t.risky} Aldi item${t.risky>1?"s":""} may need Woolies${t.extra>=0.01?` (+${money(t.extra)} if so)`:""}</span>`:""}
+    ${t.missing?`<span>${t.missing} unpriced${sample?` · <button class="link" id="est-missing">Estimate</button>`:""}</span>`:""}`;
+  const em=$("est-missing"); if(em)em.onclick=()=>estimateItems(state.items.filter(i=>priceOf(i)==null));
+  $("list").onclick=null; $("list").onchange=null; // each view sets its own
+  if(v==="rec")return renderRecipes();
+  if(v==="made")return renderMade();
+  const mine=state.items.filter(i=>effStore(i)===v);
+  const done=mine.filter(i=>i.done).length;
+  $("prog").style.width=mine.length?(done/mine.length*100)+"%":"0";
+  $("hide-done").checked=state.hide;
+  $("add-input").placeholder=tripWW()?"Add an item…":"Add to "+storeName(v)+"…";
+  let html="";
+  // Woolies list: grouped by the Charters Towers aisle in walking order, then anything not set yet by category
+  const byWW=v==="ww";
+  const groups=byWW
+    ?[...WW_AISLES.map(a=>({label:a,match:i=>wwAisle(i)===a})),
+      ...AISLES.map(a=>({label:a+" · aisle not set",unset:true,match:i=>!WW_AISLES.includes(wwAisle(i))&&(AISLES.includes(i.aisle)?i.aisle:"Other")===a}))]
+    :AISLES.map(a=>({label:a,match:i=>(AISLES.includes(i.aisle)?i.aisle:"Other")===a}));
+  groups.forEach(({label:a,match,unset})=>{
+    let its=mine.filter(match);
+    const total=its.length, got=its.filter(i=>i.done).length;
+    if(state.hide)its=its.filter(i=>!i.done);
+    if(!its.length)return;
+    its.sort((x,y)=>x.done-y.done);
+    html+=`<section class="${unset?"unset":""}"><h2><span>${a}</span><span>${got}/${total}</span></h2><ul>`+its.map(i=>`
+      <li class="${i.done?"done":""}">
+        <label><input type="checkbox" id="c-${i.id}" data-id="${i.id}" ${i.done?"checked":""}>
+          <span class="txt"><span class="name">${i.qty>1?`<span class="qty">${i.qty}×</span>`:""}${esc(i.name)}${i.note?` <span class="note">${esc(i.note)}</span>`:""}</span>
+          ${availText(i)?`<span class="avail">${esc(availText(i))}</span>`:""}
+          ${tripWW()&&i.store==="aldi"?`<span class="from-aldi">On the Aldi list</span>`:""}
+          ${i.recipes.length?`<span class="chips">${i.recipes.map(r=>`<span class="chip">${esc(r)}</span>`).join("")}</span>`:""}</span></label>
+        <span class="price">${lineCost(i)!=null?money(lineCost(i)):"–"}</span>
+        ${byWW&&unset?`<button class="setaisle" data-setaisle="${i.id}" aria-label="Set Woolies aisle for ${esc(i.name)}">Aisle?</button>`
+          :`<button class="edit" data-edit="${i.id}" aria-label="Edit ${esc(i.name)}">Edit</button>`}
+      </li>`).join("")+`</ul></section>`;
+  });
+  if(!html)html=`<p class="empty">${mine.length?"Everything's ticked off at "+storeName(v)+".":"Nothing on the "+storeName(v)+" list. Add something above."}</p>`;
+  else if(byWW&&mine.some(i=>!WW_AISLES.includes(wwAisle(i))))html=`<p class="legend">Sorted by Charters Towers aisles. Tap <strong>Aisle?</strong> on an item to set where it is. It's remembered for next time. The Woolworths app shows aisle numbers once you choose the Charters Towers store.</p>`+html;
+  $("list").innerHTML=html;
+}
+
+let recipeQuery="";
+// each ingredient priced at the store it's listed under (the list's store when it's on the list)
+const ingStore=g=>{if(tripWW())return"ww";const it=state.items.find(i=>norm(i.name)===norm(g.name));return it?it.store:(g.store||"aldi");};
+const ingPrice=g=>{const st=ingStore(g);return(st==="ww"?g.wwPrice:g.aldiPrice)??null;};
+const recipeCost=r=>r.ingredients.reduce((a,g)=>a+(ingPrice(g)||0)*(g.qty||1),0);
+function renderRecipes(){
+  $("list").innerHTML=`<section class="rsearch">
+      <input id="rec-search" type="search" placeholder="Search recipes or ingredients…" autocomplete="off" aria-label="Search recipes" value="${esc(recipeQuery)}">
+    </section>
+    <section><ul id="rec-results"></ul></section>
+    <section><form class="add" id="rec-form"><input id="rec-input" placeholder="New recipe name…" autocomplete="off" aria-label="New recipe"><button class="btn" type="submit">New recipe</button></form></section>`;
+  drawRecipeResults();
+  $("rec-search").oninput=e=>{recipeQuery=e.target.value;drawRecipeResults();};
+  $("rec-form").onsubmit=e=>{e.preventDefault();newRecipe({name:$("rec-input").value.trim()});};
+}
+/* recipes you've cooked: each recipe keeps the dates it was made; a date counts for 14 days */
+const DAY=86400000;
+const madeRecently=r=>(r.made||[]).filter(d=>Date.now()-Date.parse(d)<14*DAY).sort().reverse();
+const lastMade=r=>(r.made||[]).slice().sort().pop();
+const dayName=d=>new Date(d).toLocaleDateString("en-AU",{weekday:"short",day:"numeric",month:"short"});
+function ago(d){
+  const t=new Date(); t.setHours(0,0,0,0); const x=new Date(d); x.setHours(0,0,0,0);
+  const n=Math.round((t-x)/DAY);
+  return n<=0?"today":n===1?"yesterday":n<14?`${n} days ago`:dayName(d);
+}
+function toggleMade(r,on){
+  r.made=(r.made||[]).slice();
+  if(on){r.made.push(new Date().toISOString());
+    // cooking something that wasn't on the last shop still counts it there
+    const sh=typeof curShop==="function"&&curShop(); if(sh&&!sh.recipes.includes(r.id))sh.recipes.push(r.id);}
+  else{const recent=madeRecently(r)[0]; if(recent)r.made.splice(r.made.indexOf(recent),1);}
+  r.made=r.made.sort().slice(-60); // enough history to look back over past fortnights
+  save();
+}
+function drawRecipeResults(){
+  const q=low(recipeQuery);
+  const hits=state.recipes.map((r,idx)=>({r,idx,ingHit:q&&!low(r.name).includes(q)?r.ingredients.filter(g=>low(g.name).includes(q)).map(g=>g.name):[]}))
+    .filter(x=>!q||low(x.r.name).includes(q)||x.ingHit.length)
+    .sort((a,b)=>a.r.name.localeCompare(b.r.name));
+  const ul=$("rec-results");
+  if(!hits.length){ul.outerHTML=`<p class="empty" id="rec-results">${q?"No recipes match “"+esc(recipeQuery)+"”.":"No recipes yet. Add one below, or import one from a photo."}</p>`;return;}
+  const row=({r,idx,ingHit})=>{
+    const recent=madeRecently(r), made=recent.length>0;
+    const onList=r.ingredients.filter(g=>state.items.some(i=>norm(i.name)===norm(g.name))).length;
+    const bits=[];
+    if(made)bits.push(`Made ${ago(recent[0])}${recent.length>1?` · ${recent.length}× this fortnight`:""}`);
+    bits.push(`${r.ingredients.length} ingredient${r.ingredients.length===1?"":"s"}`);
+    if(r.ingredients.some(g=>ingPrice(g)!=null))bits.push("~"+money(recipeCost(r)));
+    if(onList&&!made)bits.push(`${onList} on list`);
+    if(!made&&lastMade(r))bits.push(`last made ${dayName(lastMade(r))}`);
+    return `<li class="rrow">
+      <button type="button" data-open="${idx}">
+      <span class="txt"><span class="name">${esc(r.name)}</span>
+      <span class="note">${bits.join(" · ")}${ingHit.length?` · has ${esc(ingHit.slice(0,3).join(", "))}`:""}</span></span>
+      <span class="chev" aria-hidden="true">›</span></button></li>`;};
+  const html=hits.map(row).join("");
+  if(ul.tagName!=="UL"){ul.outerHTML=`<ul id="rec-results">${html}</ul>`;}else ul.innerHTML=html;
+  const list=$("rec-results");
+  list.onclick=e=>{const b=e.target.closest("[data-open]");if(b)openRecipe(+b.dataset.open);};
+
+}
+
+const curShop=()=>state.shops.find(x=>x.id==="current")||null;
+const shopRecipes=()=>{const sh=curShop();return sh?sh.recipes.map(id=>state.recipes.find(r=>r.id===id)).filter(Boolean):[];};
+const madeSince=(r,since)=>(r.made||[]).filter(d=>d>=since).sort().reverse();
+const unmadeInShop=()=>{const sh=curShop();return sh?shopRecipes().filter(r=>!madeSince(r,sh.date).length):[];};
+function recipesOnList(){
+  const ids=new Set();
+  state.items.forEach(i=>(i.recipes||[]).forEach(n=>{const r=state.recipes.find(x=>x.name===n);if(r)ids.add(r.id);}));
+  return state.recipes.filter(r=>ids.has(r.id));
+}
+function finishShop(carry){
+  const ids=recipesOnList().map(r=>r.id);
+  if(carry)unmadeInShop().forEach(r=>{if(!ids.includes(r.id))ids.push(r.id);});
+  const now=new Date().toISOString();
+  const k=state.shops.findIndex(x=>x.id==="current");
+  if(k>=0){ // the finished fortnight is kept so you can look back at it in the Made tab
+    const old=state.shops[k];
+    state.shops[k]={...old,id:"s"+Date.parse(old.date),end:now};
+  }
+  state.shops.push({id:"current",date:now,recipes:ids});
+  // keep the last 26 fortnights (about a year)
+  const past=state.shops.filter(x=>x.id!=="current").sort((a,b)=>a.date.localeCompare(b.date));
+  if(past.length>26){const drop=new Set(past.slice(0,past.length-26).map(x=>x.id));state.shops=state.shops.filter(x=>!drop.has(x.id));}
+  madeView="current";
+}
+// fortnights oldest to newest, each with the date it ended (the next shop) so ticks land in the right one
+let madeView="current";
+function shopsInOrder(){
+  const list=state.shops.slice().sort((a,b)=>a.id==="current"?1:b.id==="current"?-1:a.date.localeCompare(b.date));
+  return list.map((x,k)=>({sh:x,end:x.id==="current"?null:(x.end||(list[k+1]||{}).date||null)}));
+}
+const madeIn=(r,sh,end)=>(r.made||[]).filter(d=>d>=sh.date&&(!end||d<end)).sort().reverse();
+// first run: the list you'd already shopped on Wed 28 Oct becomes the current shop
+function seedShop(){
+  if(curShop())return;
+  state.shops.push({id:"current",date:new Date(2026,9,28).toISOString(),recipes:recipesOnList().map(r=>r.id)});
+}
+
+/* ---------- Made tab: recipes from the shop you've done, ticked off as you cook ---------- */
+function renderMade(){
+  const all=shopsInOrder();
+  if(!all.length){$("list").innerHTML=`<p class="empty">Tap <strong>Done shopping</strong> on the Aldi or Woolies tab after a shop, and the recipes on that list show up here to tick off as you cook.</p>`;return;}
+  let pos=all.findIndex(x=>x.sh.id===madeView); if(pos<0){pos=all.length-1;madeView=all[pos].sh.id;}
+  const {sh,end}=all[pos], isCur=sh.id==="current";
+  // a tick in a past fortnight is dated inside that fortnight
+  const tickDate=()=>isCur?new Date().toISOString():new Date(Math.min(Date.parse(sh.date)+43200000,Date.parse(end)-1)).toISOString();
+  const inShop=sh.recipes.map(id=>state.recipes.find(r=>r.id===id)).filter(Boolean);
+  const rows=inShop.map(r=>({r,idx:state.recipes.indexOf(r),hits:madeIn(r,sh,end)}));
+  const others=state.recipes.filter(r=>!inShop.includes(r)).sort((a,b)=>a.name.localeCompare(b.name));
+  const made=rows.filter(x=>x.hits.length).sort((a,b)=>b.hits[0].localeCompare(a.hits[0]));
+  const todo=rows.filter(x=>!x.hits.length).sort((a,b)=>a.r.name.localeCompare(b.r.name));
+  const row=({r,idx,hits})=>{
+    const on=hits.length>0;
+    const sub=on?`Made ${isCur?ago(hits[0]):dayName(hits[0])}${hits.length>1?` · ${hits.length}× that fortnight`:""}`
+      :isCur?(lastMade(r)?`Last made ${dayName(lastMade(r))}`:"Not made yet"):"Not made that fortnight";
+    return `<li class="mrow ${on?"made":""}">
+      <label class="madebox"><input type="checkbox" id="mk-${esc(r.id)}" data-made="${idx}" ${on?"checked":""} aria-label="${esc(r.name)} made"></label>
+      <button type="button" class="open" data-open="${idx}"><span class="txt"><span class="name">${esc(r.name)}</span><span class="note">${sub}</span></span>
+      ${on?`<span class="again" data-again="${idx}" role="button" tabindex="0" aria-label="Made ${esc(r.name)} again">+1</span>`:""}
+      <span class="chev" aria-hidden="true">›</span></button>
+      ${on?"":`<button type="button" class="mini-x" data-unshop="${esc(r.id)}" aria-label="Take ${esc(r.name)} off this fortnight">×</button>`}</li>`;
+  };
+  const range=isCur?`Shopped ${dayName(sh.date)} · now`:`${dayName(sh.date)} – ${dayName(end)}`;
+  $("list").innerHTML=`
+    <div class="fnav">
+      <button type="button" class="fbtn" id="mf-prev" ${pos>0?"":"disabled"} aria-label="Earlier fortnight">‹</button>
+      <div class="ftitle"><strong>${isCur?"This fortnight":"Past fortnight"}</strong><span>${range}</span></div>
+      <button type="button" class="fbtn" id="mf-next" ${pos<all.length-1?"":"disabled"} aria-label="Later fortnight">›</button>
+    </div>
+    ${isCur?`<p class="legend">Tick a recipe when you cook it. Your shopping list is for the next shop. When you've done that shop, start the next fortnight and its recipes move here.</p>`
+      :`<p class="legend">Looking back. You can still fix ticks here. <button class="link" type="button" id="mf-cur">Back to this fortnight</button></p>`}
+    ${made.length?`<section><h2><span>Made</span><span>${made.length}</span></h2><ul>${made.map(row).join("")}</ul></section>`:""}
+    ${todo.length?`<section><h2><span>${isCur?"Still to cook":"Not made"}</span><span>${todo.length}</span></h2><ul>${todo.map(row).join("")}</ul></section>`:""}
+    ${!rows.length?`<p class="empty">No recipes on this fortnight. Add any you bought for below.</p>`:""}
+    <section class="addshop">${others.length?`<label class="field">${isCur?"Cooking something else?":"Cooked something else that fortnight?"}
+      <div class="newrec"><select id="ms-add" aria-label="Recipe to add to this fortnight"><option value="">Choose from your recipes…</option>${others.map(r=>`<option value="${esc(r.id)}">${esc(r.name)}</option>`).join("")}</select>
+      <button class="btn ghost" type="button" id="ms-addbtn">Add</button></div></label>`:""}
+      <div class="actions"><button class="link" type="button" id="ms-dir">Open the recipe directory</button><span class="sp"></span>
+      ${isCur?`<button class="btn ghost" type="button" id="ms-new">Start next fortnight</button>`:""}</div>
+    </section>`;
+  const l=$("list");
+  $("mf-prev").onclick=()=>{madeView=all[pos-1].sh.id;render();};
+  $("mf-next").onclick=()=>{madeView=all[pos+1].sh.id;render();};
+  if($("mf-cur"))$("mf-cur").onclick=()=>{madeView="current";render();};
+  $("ms-dir").onclick=()=>{state.view="rec";save();render();scrollTo({top:0});};
+  if($("ms-new"))$("ms-new").onclick=()=>$("new-shop").click();
+  l.onchange=e=>{const k=e.target.dataset.made;if(k===undefined)return;
+    const r=state.recipes[+k];
+    if(e.target.checked){r.made=(r.made||[]).concat(tickDate()).sort().slice(-60);}
+    else{const d=madeIn(r,sh,end)[0];if(d)r.made=r.made.filter(x=>x!==d);}
+    save();render();};
+  l.onclick=e=>{
+    const a=e.target.closest("[data-again]"); if(a){e.stopPropagation();const r=state.recipes[+a.dataset.again];r.made=(r.made||[]).concat(tickDate()).sort().slice(-60);save();render();return;}
+    const u=e.target.closest("[data-unshop]"); if(u){sh.recipes=sh.recipes.filter(x=>x!==u.dataset.unshop);save();render();return;}
+    if(e.target.id==="ms-addbtn"){const v=$("ms-add").value;if(v&&!sh.recipes.includes(v)){sh.recipes.push(v);save();render();}return;}
+    const b=e.target.closest("[data-open]"); if(b)openRecipe(+b.dataset.open);
+  };
+}
+function openRecipe(idx){
+  const r=state.recipes[idx]; if(!r)return;
+  const onList=r.ingredients.filter(g=>state.items.some(i=>norm(i.name)===norm(g.name))).length;
+  openSheet(`<div class="recipe-sheet">
+    <h3><input id="rs-name" value="${esc(r.name)}" aria-label="Recipe name"></h3>
+    <div class="madebar">
+      <button type="button" class="btn ${madeRecently(r).length?"":"ghost"}" id="rs-made" aria-pressed="${madeRecently(r).length>0}">${madeRecently(r).length?"✓ Made "+ago(madeRecently(r)[0]):"Mark as made"}</button>
+      ${madeRecently(r).length?`<button type="button" class="link" id="rs-again">Made it again today</button>`:""}
+      <span class="note">${lastMade(r)?(madeRecently(r).length>1?`${madeRecently(r).length}× this fortnight`:madeRecently(r).length?"":`Last made ${dayName(lastMade(r))}`):"Not made yet"}</span>
+    </div>
+    <p class="note">${onList}/${r.ingredients.length} on list${r.ingredients.some(g=>ingPrice(g)!=null)?" · about "+money(recipeCost(r)):""} · Woolworths items outlined in brown · ✓ already on the list</p>
+    <div class="ing">${r.ingredients.length?r.ingredients.map((g,gi)=>{const it=state.items.find(i=>norm(i.name)===norm(g.name));
+      return `<span class="ingchip ${g.store==="ww"?"w":""} ${it&&it.done?"d":""}">${it?"✓ ":""}${g.qty>1?g.qty+"× ":""}${esc(g.name)}<button class="x" type="button" data-ingdel="${gi}" aria-label="Remove ${esc(g.name)} from recipe">×</button></span>`}).join(""):`<span>No ingredients saved yet</span>`}</div>
+    <form class="newrec" id="rs-ingform"><input id="rs-ing" placeholder="Add an ingredient…" autocomplete="off" aria-label="New ingredient"><button class="btn ghost" type="submit">Save</button></form>
+    <label class="field">Method and notes<textarea id="rs-notes" placeholder="Steps, cooking notes or a link to the recipe">${esc(r.notes)}</textarea></label>
+    <div class="actions"><button class="link" id="rs-del" type="button">Delete recipe</button><span class="sp"></span>
+      <button class="btn" id="rs-add" type="button" ${r.ingredients.length?"":"disabled"}>Add to list</button></div>
+  </div>`);
+  const refresh=()=>{save();render();openRecipe(state.recipes.indexOf(r));};
+  $("rs-notes").oninput=e=>{r.notes=e.target.value;save();};
+  $("rs-made").onclick=()=>{toggleMade(r,!madeRecently(r).length);render();openRecipe(state.recipes.indexOf(r));};
+  if($("rs-again"))$("rs-again").onclick=()=>{toggleMade(r,true);render();openRecipe(state.recipes.indexOf(r));};
+  $("rs-name").onchange=e=>{
+    const nv=e.target.value.trim();
+    if(!nv||state.recipes.some(x=>x!==r&&low(x.name)===low(nv))){e.target.value=r.name;return;}
+    state.items.forEach(i=>{i.recipes=i.recipes.map(x=>x===r.name?nv:x);if(i.needs&&i.needs[r.name]!=null){i.needs[nv]=i.needs[r.name];delete i.needs[r.name];}}); r.name=nv; save(); render();
+  };
+  scrim.querySelectorAll("[data-ingdel]").forEach(b=>b.onclick=()=>{r.ingredients.splice(+b.dataset.ingdel,1);refresh();});
+  $("rs-ingform").onsubmit=e=>{
+    e.preventDefault();const n=$("rs-ing").value.trim(); if(!n)return;
+    const ing={name:n,qty:1,note:"",aisle:guessAisle(n),store:"aldi"}; seedPrice(ing);
+    rememberIngredient(r.name,ing); refresh(); $("rs-ing").focus();
+  };
+  $("rs-del").onclick=e=>{
+    if(!e.target.dataset.armed){e.target.dataset.armed="1";e.target.textContent="Tap again to delete";return;}
+    state.items.forEach(i=>{if(i.recipes.includes(r.name)||(i.needs&&i.needs[r.name]!=null))dropNeed(i,r.name);});
+    state.shops.forEach(sh=>sh.recipes=sh.recipes.filter(x=>x!==r.id));
+    state.recipes.splice(state.recipes.indexOf(r),1); save(); closeSheet(); render();
+  };
+  $("rs-add").onclick=()=>pantryCheck(state.recipes.indexOf(r));
+}
+
+$("list").addEventListener("change",e=>{
+  if(e.target.dataset.id){
+    const it=state.items.find(i=>i.id===e.target.dataset.id); if(!it)return;
+    it.done=e.target.checked; save(); render();
+  }
+});
+$("list").addEventListener("click",e=>{
+  const ed=e.target.dataset.edit;
+  if(ed)openEditor(ed);
+  if(e.target.dataset.setaisle)pickAisle(e.target.dataset.setaisle);
+});
+document.querySelectorAll("#trip [data-trip]").forEach(b=>b.onclick=()=>{
+  state.trip=b.dataset.trip; if(state.trip==="ww"&&state.view==="aldi")state.view="ww";
+  try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){} render();
+});
+document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{state.view=b.dataset.view; save(); render();});
+$("hide-done").onchange=e=>{state.hide=e.target.checked; save(); render();};
+
+function guessAisle(n){
+  n=n.toLowerCase();
+  if(/frozen|ice cream/.test(n))return"Frozen";
+  if(/chicken|beef|mince|pork|lamb|sausage|bacon|ham|fish|salmon|prawn|steak|thigh|breast/.test(n)&&!/stock/.test(n))return"Meat & deli";
+  if(/milk|cheese|yog|butter|juice|cream|egg/.test(n)&&!/coconut|peanut/.test(n))return"Dairy & drinks";
+  if(/bread|wrap|roll|bun|bagel|muffin/.test(n))return"Bakery";
+  if(/soap|paper|bag|foil|cling|rinse|detergent|tissue|spray|sponge|bin liner|wash/.test(n))return"Household";
+  if(/apple|banana|onion|tomato|lettuce|carrot|potato|herb|basil|lemon|lime|capsicum|chilli|zucchini|bean|spinach|mushroom|avocado|ginger|coriander|parsley|broccoli|cucumber|fruit|berr|rocket|shallot|grass/.test(n)&&!/dried|paste|jar|tin|can/.test(n))return"Fruit & veg";
+  if(/pasta|rice|noodle|stock|sauce|oil|tin|can|paste|flour|sugar|honey|spice|chip|cereal|olive|jar|vinegar/.test(n))return"Pantry";
+  return"Other";
+}
+$("add-form").onsubmit=e=>{
+  e.preventDefault();
+  const v=auName($("add-input").value.trim());
+  openEditor(null,{id:uid(),name:v,note:"",qty:1,recipes:[],aisle:v?guessAisle(v):"Other",store:state.view,done:false});
+};
+$("new-shop").onclick=()=>{
+  const next=recipesOnList(), carry=unmadeInShop().filter(r=>!next.includes(r));
+  $("c-recipes").innerHTML=next.length
+    ?`These recipes move to the <strong>Made</strong> tab so you can tick them off as you cook: ${next.map(r=>esc(r.name)).join(", ")}.`
+    :`No recipes are tagged on this list, so the Made tab will only show any you carry over or add there yourself.`;
+  $("c-carry-wrap").hidden=!carry.length;
+  $("c-carry-txt").textContent=`Carry over ${carry.length} not made yet from the last shop (${carry.map(r=>r.name).join(", ")})`;
+  $("confirm").hidden=false;$("confirm").scrollIntoView({behavior:"smooth",block:"center"});
+};
+// the Made tab's "Start next fortnight" uses the same panel; after it, show the new fortnight
+["c-untick","c-clear"].forEach(id=>$(id).addEventListener("click",()=>{madeView="current";}));
+$("c-cancel").onclick=()=>$("confirm").hidden=true;
+$("c-untick").onclick=()=>{finishShop($("c-carry").checked);state.items.forEach(i=>i.done=false);$("confirm").hidden=true;save();render();};
+$("c-clear").onclick=()=>{finishShop($("c-carry").checked);state.items=state.items.filter(i=>!i.done);$("confirm").hidden=true;save();render();};
+
+/* ---------- sheet ---------- */
+const scrim=$("scrim");
+function openSheet(html){
+  const top=scrim.hidden?0:(scrim.querySelector(".sheet")||{}).scrollTop||0;
+  scrim.innerHTML=`<div class="sheet" role="dialog" aria-modal="true"><button type="button" class="sheet-x" aria-label="Close">×</button>${html}</div>`;
+  scrim.hidden=false; document.documentElement.classList.add("sheet-open");
+  scrim.querySelector(".sheet-x").onclick=()=>{if(busy&&ctl)ctl.abort();closeSheet();};
+  if(top)scrim.querySelector(".sheet").scrollTop=top;
+}
+function closeSheet(){scrim.hidden=true;scrim.innerHTML="";document.documentElement.classList.remove("sheet-open");}
+// a stray tap outside the sheet on a phone shouldn't throw away what you typed, so only empty-ish sheets close that way
+scrim.addEventListener("click",e=>{if(e.target===scrim&&!busy&&!scrim.querySelector(".sheet input:not([type=checkbox]):not([type=file]),.sheet textarea"))closeSheet()});
+scrim.addEventListener("focusin",e=>{if(e.target.matches("input,textarea,select"))setTimeout(()=>e.target.scrollIntoView({block:"center",behavior:"smooth"}),300);});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!scrim.hidden&&!busy)closeSheet()});
+
+
+function openEditor(id,draft,pre){
+  const isNew=!!draft;
+  const it=draft||state.items.find(i=>i.id===id); if(!it)return;
+  const shown=pre?{...it,...pre}:it;
+  const dupNow=isNew&&shown.name?findDup(shown.name):null;
+  let store=shown.store;
+  openSheet(`
+    <h2>${isNew?"Add item":"Edit item"}</h2>
+    <p class="status warn-note" id="e-dup" ${dupNow?"":"hidden"}>${dupNow?dupNote(dupNow):""}</p>
+    <label class="field">Item<input id="e-name" value="${esc(shown.name)}" placeholder="e.g. Greek yoghurt" autocomplete="off"></label>
+    <div class="grid2">
+      <div class="field">Quantity
+        <div class="stepper"><button type="button" id="e-minus" aria-label="Less">−</button>
+        <input id="e-qty" type="number" min="1" inputmode="numeric" value="${shown.qty||1}" aria-label="Quantity">
+        <button type="button" id="e-plus" aria-label="More">+</button></div>
+        ${!isNew&&needsText(it)?`<span class="est-hint">Made up of ${needsText(it)}</span>`:""}
+      </div>
+      <label class="field">Size or note<input id="e-note" value="${esc(shown.note)}" placeholder="e.g. 400g, small"></label>
+    </div>
+    <div class="field">Buy at <span>Tick one. It only goes on that store's list.</span>
+      <div class="storepick" id="e-store">
+        <label class="storechk" data-v="aldi"><input type="checkbox" id="e-st-aldi" data-v="aldi"> Aldi</label>
+        <label class="storechk" data-v="ww"><input type="checkbox" id="e-st-ww" data-v="ww"> Woolworths</label>
+      </div></div>
+    <div class="field">Estimated price (each)
+      <div class="grid2 prices">
+        <label class="pfield" id="pf-aldi"><span>Aldi <em>used</em></span><input id="e-aldi" type="number" step="0.01" min="0" inputmode="decimal" value="${shown.aldiPrice??""}" placeholder="$ unknown"></label>
+        <label class="pfield" id="pf-ww"><span>Woolies, mid–premium <em>used</em></span><input id="e-ww" type="number" step="0.01" min="0" inputmode="decimal" value="${shown.wwPrice??""}" placeholder="$ unknown"></label>
+      </div>
+      <div class="grid2">
+        <select id="e-avail" aria-label="Availability at Aldi"><option value="yes">Aldi usually has it</option><option value="maybe">Aldi sometimes has it</option><option value="rarely">Aldi rarely has it</option></select>
+        <button class="btn ghost" type="button" id="e-est" hidden>Estimate prices</button></div>
+      <span class="est-hint" id="e-esthint">The cost uses the price for the store it's listed under. Prices are estimates, so edit them to match the shelf.</span>
+    </div>
+    <div class="grid2">
+      <label class="field">Type<select id="e-aisle">${AISLES.map(a=>`<option ${a===shown.aisle?"selected":""}>${a}</option>`).join("")}</select></label>
+      <label class="field">Woolies aisle<select id="e-wwaisle"><option value="">Not set</option>${WW_AISLES.map(a=>`<option ${a===(shown.wwAisle||memAisle(shown.name||""))?"selected":""}>${a}</option>`).join("")}</select></label>
+    </div>
+    <div class="field">Used in recipes <span>Pick as many as apply</span>
+      <div class="picks" id="e-picks"></div>
+      <div class="newrec"><input id="e-newrec" placeholder="Add a new recipe…" autocomplete="off" aria-label="New recipe name"><button class="btn ghost" type="button" id="e-addrec">Add</button></div>
+    </div>
+    <div class="actions">
+      ${isNew?"":`<button class="btn danger" id="e-del" type="button">Delete</button>`}<span class="sp"></span>
+      <button class="btn ghost" id="e-cancel" type="button">Cancel</button>
+      <button class="btn" id="e-save" type="button">${isNew?"Add to list":"Save"}</button>
+    </div>`);
+  const seg=()=>{document.querySelectorAll("#e-store input").forEach(c=>{c.checked=c.dataset.v===store;c.closest(".storechk").classList.toggle("on",c.checked);});
+    $("pf-aldi").classList.toggle("on",store!=="ww");$("pf-ww").classList.toggle("on",store==="ww");
+    $("e-avail").hidden=store==="ww"; // Aldi availability only matters for Aldi items
+  };
+  seg();
+  // works like a pair of tick boxes where only one can be ticked: ticking one unticks the other,
+  // and unticking the ticked one moves the item to the other store (it always belongs to one list)
+  document.querySelectorAll("#e-store input").forEach(c=>c.onchange=()=>{store=c.checked?c.dataset.v:(c.dataset.v==="aldi"?"ww":"aldi");seg();});
+  const picked=new Set(shown.recipes), extra=shown.recipes.filter(n=>!state.recipes.some(r=>r.name===n));
+  const drawPicks=()=>{
+    const names=[...state.recipes.map(r=>r.name),...extra];
+    $("e-picks").innerHTML=names.length?names.map((n,k)=>`<button type="button" data-pk="${k}" aria-pressed="${picked.has(n)}">${esc(n)}</button>`).join(""):`<span>No recipes yet</span>`;
+    $("e-picks").querySelectorAll("button").forEach(b=>b.onclick=()=>{const n=names[b.dataset.pk];picked.has(n)?picked.delete(n):picked.add(n);drawPicks();});
+  };
+  drawPicks();
+  const addRec=()=>{
+    const n=$("e-newrec").value.trim(); if(!n)return;
+    const known=[...state.recipes.map(r=>r.name),...extra].find(x=>x.toLowerCase()===n.toLowerCase());
+    if(!known)extra.push(n);
+    picked.add(known||n); $("e-newrec").value=""; drawPicks();
+  };
+  $("e-addrec").onclick=addRec;
+  $("e-newrec").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();addRec();}};
+  $("e-avail").value=shown.avail||"yes";
+  if(sample){$("e-est").hidden=false;$("e-est").onclick=async()=>{
+    const n=$("e-name").value.trim(); if(!n)return;
+    $("e-est").disabled=true;$("e-esthint").textContent="Estimating…";
+    try{const [r]=await askPrices([{name:n,note:$("e-note").value,store}]);
+      if(r){$("e-aldi").value=r.aldiPrice??"";$("e-ww").value=r.wwPrice??"";$("e-avail").value=r.avail||"yes";$("e-esthint").textContent="Woolies is estimated for a mid-range to premium brand at Charters Towers. The cost uses the price for the store it's listed under.";}
+    }catch(e){$("e-esthint").textContent=errCopy(e&&e.code);}
+    $("e-est").disabled=false;
+  };}
+  const q=$("e-qty");
+  $("e-minus").onclick=()=>q.value=Math.max(1,(+q.value||1)-1);
+  $("e-plus").onclick=()=>q.value=(+q.value||0)+1;
+  $("e-cancel").onclick=closeSheet;
+  if(!isNew)$("e-del").onclick=()=>{
+    const b=$("e-del");
+    if(b.dataset.armed){state.items=state.items.filter(i=>i.id!==id);save();closeSheet();render();}
+    else{b.dataset.armed="1";b.textContent="Tap again to delete";}
+  };
+  $("e-name").addEventListener("change",()=>{const m=memAisle($("e-name").value.trim());if(m&&!$("e-wwaisle").value)$("e-wwaisle").value=m;});
+  $("e-name").addEventListener("input",()=>{
+    const d=findDup($("e-name").value.trim(),isNew?null:it.id), el=$("e-dup");
+    el.hidden=!d; el.textContent=d?dupNote(d):"";
+  });
+  $("e-save").onclick=()=>{
+    const n=auName($("e-name").value.trim()); if(!n){$("e-name").focus();return;}
+    const typed=Math.max(1,Math.round(+q.value||1));
+    const wa=$("e-wwaisle").value; setAisle(n,wa);
+    const vals={name:n,qty:typed,note:$("e-note").value.trim(),store,aisle:$("e-aisle").value,wwAisle:wa||undefined,recipes:[...picked].filter(Boolean),
+      aldiPrice:$("e-aldi").value===""?null:Math.max(0,+$("e-aldi").value),wwPrice:$("e-ww").value===""?null:Math.max(0,+$("e-ww").value),avail:$("e-avail").value};
+    const dup=findDup(n,isNew?null:it.id);
+    if(dup){confirmMerge(dup,vals,()=>{
+        vals.recipes=vals.recipes.map(ensureRecipe);
+        if(vals.aldiPrice==null||vals.wwPrice==null)seedPrice(vals);
+        initNeeds(vals); mergeInto(dup,vals); dup.store=vals.store; if(dup.store==="ww")dup.avail=dup.avail||"yes";
+        if(!isNew)state.items=state.items.filter(i=>i!==it); else $("add-input").value="";
+        dup.recipes.forEach(r=>rememberIngredient(r,dup));
+        save();closeSheet();render();
+      },()=>openEditor(id,draft,{...vals,recipes:vals.recipes}));return;}
+    vals.recipes=vals.recipes.map(ensureRecipe);
+    const qtyChanged=typed!==(shown.qty||1)||isNew;
+    Object.assign(it,vals);
+    // rebuild the breakdown: each recipe keeps its own amount; the total you type sets the extra
+    const old=it.needs||{}, needs={_own:isNew?0:(+old._own||0)};
+    const unknown=[];
+    it.recipes.forEach(r=>{
+      if(old[r]!=null){needs[r]=+old[r];return;}
+      const rec=state.recipes.find(x=>x.name===r), g=rec&&rec.ingredients.find(x=>norm(x.name)===norm(n));
+      if(g)needs[r]=g.qty||1; else{needs[r]=1;unknown.push(r);}
+    });
+    it.needs=needs;
+    if(qtyChanged){
+      if(unknown.length){ // a recipe with no saved amount takes whatever the total doesn't already cover
+        const spare=typed-recipeSum(it)-Math.max(0,needs._own);
+        if(spare>0)needs[unknown[0]]+=spare; else needs._own=typed-recipeSum(it);
+      }else needs._own=typed-recipeSum(it);
+    }
+    syncQty(it);
+    if(isNew&&(it.aldiPrice==null||it.wwPrice==null))seedPrice(it);
+    if(isNew){state.items.push(it);$("add-input").value="";}
+    it.recipes.forEach(r=>rememberIngredient(r,it));
+    save();closeSheet();render();
+  };
+  if(isNew&&!it.name)$("e-name").focus();
+  if(isNew)$("e-name").addEventListener("change",()=>{const n=$("e-name").value.trim();if(n&&$("e-aisle").value==="Other")$("e-aisle").value=guessAisle(n);});
+  if(!isNew)$("e-name").focus();
+}
+
+/* ---------- new recipe: name, ingredients and method together ---------- */
+function parseLine(line){
+  let t=line.replace(/^[\s\-•*·]+/,"").trim(); if(!t)return null;
+  let qty=1, m=t.match(/^(\d+)\s*(x|×)?\s+(.*)$/i);
+  if(m&&+m[1]<=24&&!/^(g|kg|ml|l|cups?|tbsp|tsp)\b/i.test(m[3])){qty=+m[1];t=m[3];}
+  else{m=t.match(/^(.*?)\s*(x|×)\s*(\d+)$/i);if(m){qty=+m[3];t=m[1];}}
+  let note=""; m=t.match(/^(.*?)[\s,(]+(\d+(?:\.\d+)?\s?(?:g|kg|ml|l|pk|pack))\)?$/i);
+  if(m){t=m[1];note=m[2];}
+  else{m=t.match(/^(\d+(?:\.\d+)?\s?(?:g|kg|ml|l))\s+(?:of\s+)?(.*)$/i);if(m){note=m[1];t=m[2];}}
+  const name=auName(t.replace(/[,(]+$/,"").trim()); if(!name)return null;
+  const g={name:name.charAt(0).toUpperCase()+name.slice(1),qty,note,aisle:guessAisle(name),store:"aldi"};
+  seedPrice(g); return g;
+}
+function newRecipe(pre){
+  pre=pre||{};
+  openSheet(`<h2>New recipe</h2>
+    ${sample?`<button class="btn ghost" type="button" id="nr-paste">Paste a whole recipe and let Claude sort it</button>
+    <div id="nr-pastebox" hidden class="field">Paste the recipe (title, ingredients and method)
+      <textarea id="nr-raw" placeholder="Chicken laksa&#10;Ingredients…&#10;Method…"></textarea>
+      <div class="actions"><span class="status" id="nr-pstatus"></span><span class="sp"></span><button class="btn" type="button" id="nr-sort">Sort it out</button></div></div>`:""}
+    <label class="field">Recipe name<input id="nr-name" value="${esc(pre.name||"")}" placeholder="e.g. Chicken laksa" autocomplete="off"></label>
+    <label class="field">Ingredients, one per line<textarea id="nr-ings" placeholder="2 x Coconut milk 400ml&#10;Laksa paste&#10;Hokkien noodles 450g&#10;Lemongrass">${esc(pre.ings||"")}</textarea></label>
+    <label class="field">Method and notes<textarea id="nr-method" placeholder="1. Fry the paste…&#10;2. Add stock and coconut milk…">${esc(pre.method||"")}</textarea></label>
+    <label class="tools" style="font-size:.9rem;color:var(--fg)"><input type="checkbox" id="nr-shop" ${pre.shop===false?"":"checked"}> Add the ingredients to my list now (pantry check first)</label>
+    <p class="status err" id="nr-err" hidden></p>
+    <div class="actions"><span class="sp"></span><button class="btn ghost" type="button" id="nr-cancel">Cancel</button><button class="btn" type="button" id="nr-save">Save recipe</button></div>`);
+  if(!pre.name)$("nr-name").focus();
+  $("nr-cancel").onclick=closeSheet;
+  if(sample){
+    $("nr-paste").onclick=()=>{$("nr-pastebox").hidden=false;$("nr-paste").hidden=true;$("nr-raw").focus();};
+    $("nr-sort").onclick=async()=>{
+      const raw=$("nr-raw").value.trim(); if(!raw)return;
+      $("nr-sort").disabled=true;$("nr-pstatus").textContent="Sorting…";
+      try{
+        const r=await sample.json(`Split this recipe into its title, shopping ingredients and method. Reply with only JSON:
+{"title":string,"ingredients":[{"name":string,"qty":number,"note":string}],"method":string}
+For ingredients: clean capitalised Australian supermarket names (capsicum not bell pepper, coriander not cilantro, shallots for spring/green onions, mince not ground meat, prawns, plain flour, cornflour, thickened cream), qty = whole number of packs/items to buy (default 1), note = pack size if stated. Skip water, salt and pepper. Keep the method's steps and wording, one step per line.
+
+${raw.slice(0,20000)}`,{modelTier:"quick"});
+        if(r&&r.title&&!$("nr-name").value.trim())$("nr-name").value=String(r.title);
+        const ings=(r&&Array.isArray(r.ingredients)?r.ingredients:[]).filter(x=>x&&x.name)
+          .map(x=>`${(+x.qty||1)>1?Math.round(+x.qty)+" x ":""}${String(x.name).trim()}${x.note?" "+String(x.note).trim():""}`);
+        if(ings.length)$("nr-ings").value=ings.join("\n");
+        if(r&&r.method)$("nr-method").value=String(r.method);
+        $("nr-pastebox").hidden=true;
+      }catch(e){$("nr-pstatus").textContent=errCopy(e&&e.code);$("nr-sort").disabled=false;}
+    };
+  }
+  $("nr-save").onclick=()=>{
+    const err=$("nr-err"), name=$("nr-name").value.trim();
+    if(!name){err.hidden=false;err.textContent="Give the recipe a name.";$("nr-name").focus();return;}
+    const existing=state.recipes.find(r=>low(r.name)===low(name));
+    if(existing&&!$("nr-save").dataset.ok){err.hidden=false;err.textContent=`You already have a recipe called ${existing.name}. Tap Save again to add these ingredients and method to it.`;$("nr-save").dataset.ok="1";return;}
+    const rname=ensureRecipe(name), r=state.recipes.find(x=>x.name===rname);
+    $("nr-ings").value.split(/\n+/).map(parseLine).filter(Boolean).forEach(g=>{
+      const k=r.ingredients.findIndex(x=>norm(x.name)===norm(g.name));
+      if(k<0)r.ingredients.push(g); else r.ingredients[k].qty=(r.ingredients[k].qty||1)+(g.qty||1);
+    });
+    const meth=$("nr-method").value.trim();
+    if(meth)r.notes=r.notes?r.notes+"\n\n"+meth:meth;
+    save(); render();
+    const idx=state.recipes.indexOf(r);
+    const missing=r.ingredients.filter(g=>ingPrice(g)==null);
+    if(sample&&missing.length)estimateItems(missing); // fills in prices in the background
+    if($("nr-shop").checked&&r.ingredients.length)pantryCheck(idx); else openRecipe(idx);
+  };
+}
+
+/* ---------- quick Woolies aisle picker ---------- */
+function pickAisle(id){
+  const it=state.items.find(i=>i.id===id); if(!it)return;
+  const cur=wwAisle(it);
+  openSheet(`<h2>Where is ${esc(it.name)}?</h2>
+    <p class="status">Woolworths Charters Towers. This is remembered for next time.</p>
+    <div class="aislegrid">${WW_AISLES.map((a,k)=>`<button type="button" data-a="${k}" aria-pressed="${a===cur}">${esc(a.replace(/^Aisle /,""))}</button>`).join("")}</div>
+    <div class="actions">${cur?`<button class="link" type="button" id="pa-clear">Clear</button>`:""}<span class="sp"></span><button class="btn ghost" type="button" id="pa-cancel">Cancel</button></div>`);
+  scrim.querySelectorAll("[data-a]").forEach(b=>b.onclick=()=>{const a=WW_AISLES[+b.dataset.a];it.wwAisle=a;setAisle(it.name,a);save();closeSheet();render();});
+  $("pa-cancel").onclick=closeSheet;
+  if($("pa-clear"))$("pa-clear").onclick=()=>{delete it.wwAisle;setAisle(it.name,"");save();closeSheet();render();};
+}
+
+/* ---------- double-up check ---------- */
+function dupNote(d){return `${d.name} is already on your ${storeName(d.store)} list (${d.qty||1}×${d.done?", ticked":""}). Saving adds to that quantity instead of listing it twice, and keeps it on whichever store you tick.`;}
+function confirmMerge(dup,vals,onMerge,onBack){
+  const t={...dup,needs:{...(dup.needs||{})},recipes:[...dup.recipes]}; const v={...vals,recipes:[...(vals.recipes||[])]}; initNeeds(v); mergeInto(t,v);
+  const total=t.qty;
+  openSheet(`<h2>Already on the list</h2>
+    <p class="status"><strong>${esc(dup.name)}</strong> is on your ${storeName(dup.store)} list as ${dup.qty||1}×${dup.done?" (ticked off)":""}. ${vals.store&&vals.store!==dup.store
+      ?`Change it to <strong>${total}×</strong> and move it to your <strong>${storeName(vals.store)}</strong> list, so it's only on one list?`
+      :`Change it to <strong>${total}×</strong> instead of adding it twice?`}</p>
+    <div class="actions"><button class="btn ghost" id="m-back" type="button">Go back</button><span class="sp"></span>
+      <button class="btn" id="m-ok" type="button">${vals.store&&vals.store!==dup.store?`${total}× at ${vals.store==="ww"?"Woolies":"Aldi"}`:`Make it ${total}×`}</button></div>`);
+  $("m-back").onclick=onBack; $("m-ok").onclick=onMerge;
+}
+
+/* ---------- pantry check before adding a recipe ---------- */
+function pantryCheck(k){
+  const r=state.recipes[k]; if(!r)return;
+  const rows=r.ingredients.map(g=>{const it=state.items.find(i=>norm(i.name)===norm(g.name)&&!i.done);
+    const counted=!!(it&&it.needs&&it.needs[r.name]!=null);
+    const after=it?Math.max(1,recipeSum(it)-(counted?+it.needs[r.name]:0)+(g.qty||1)+(+it.needs._own||0)):g.qty||1;
+    return{g,on:it,onList:!!it,counted,after,need:!counted};});
+  const draw=()=>{
+    const n=rows.filter(x=>x.need).length;
+    openSheet(`<h2>Add ${esc(r.name)}</h2>
+      <p class="status">Check the cupboard first. Tap <strong>Have it</strong> to leave an ingredient off, or <strong>Add</strong> to put it on the list. Anything already on the list gets this recipe's amount added to it instead of a second line, and a recipe is never counted twice.</p>
+      <div>${rows.map((x,j)=>`<div class="rv"><span class="txt"><span class="name">${x.g.qty>1?`<span class="qty">${x.g.qty}×</span>`:""}${esc(x.g.name)}${x.g.note?` <span class="note">${esc(x.g.note)}</span>`:""}</span>
+        <span class="note">${storeName(ingStore(x.g))}${ingPrice(x.g)!=null?" · ~"+money(ingPrice(x.g)*(x.g.qty||1)):""}${x.onList?(x.counted?` · on list, ${x.on.qty||1}× already includes this recipe`:` · on list as ${x.on.qty||1}×${x.need&&x.after!==(x.on.qty||1)?` → <strong>${x.after}×</strong>`:""}`):""}</span></span>
+        <div class="seg pc"><button type="button" data-j="${j}" data-v="have" aria-pressed="${!x.need}">Have it</button><button type="button" data-j="${j}" data-v="add" aria-pressed="${x.need}">Add</button></div></div>`).join("")}</div>
+      <div class="actions"><button class="link" id="pc-all">Add all</button><button class="link" id="pc-none">Have all</button><span class="sp"></span>
+        <button class="btn ghost" id="pc-cancel">Cancel</button><button class="btn" id="pc-ok" ${n?"":"disabled"}>Add ${n} item${n===1?"":"s"}</button></div>`);
+    scrim.querySelectorAll(".pc button").forEach(b=>b.onclick=()=>{rows[b.dataset.j].need=b.dataset.v==="add";draw();});
+    $("pc-all").onclick=()=>{rows.forEach(x=>x.need=true);draw();};
+    $("pc-none").onclick=()=>{rows.forEach(x=>x.need=false);draw();};
+    $("pc-cancel").onclick=closeSheet;
+    $("pc-ok").onclick=()=>{
+      rows.filter(x=>x.need).forEach(({g})=>{
+        const it=findDup(g.name);
+        if(it){it.done=false;setNeed(it,r.name,g.qty||1);if(it.aldiPrice==null&&g.aldiPrice!=null)it.aldiPrice=g.aldiPrice;if(it.wwPrice==null&&g.wwPrice!=null)it.wwPrice=g.wwPrice;}
+        else{const x={id:uid(),name:g.name,note:g.note||"",qty:g.qty||1,aisle:g.aisle||guessAisle(g.name),store:g.store||"aldi",aldiPrice:g.aldiPrice??null,wwPrice:g.wwPrice??null,avail:g.avail||"yes",recipes:[r.name],needs:{[r.name]:g.qty||1,_own:0},done:false};syncQty(x);state.items.push(x);}
+      });
+      save();closeSheet();render();
+    };
+  };
+  draw();
+}
+
+/* ---------- prices via Claude ---------- */
+const FIELDS=`"aldi" = typical ALDI Australia regular price in AUD for one pack/each in Queensland (number; your best estimate even if ALDI rarely stocks it);
+"ww" = typical regular shelf price in AUD at Woolworths Charters Towers (regional Queensland) for a MID-RANGE TO PREMIUM brand, e.g. a2, Nudie, Barilla or De Cecco, Massel, Beechworth, Sandhurst, Always Fresh, Marion's Kitchen, Lindt or Cadbury baking, Creative Gourmet, Fairy, Kleenex, Glad, Finish (number). Never use Woolworths own brand, Essentials, Macro or the cheapest budget brand. When an item matches one of these, price that exact brand instead: ${Object.entries(BRAND_PREFS).map(([k,v])=>k+" = "+v).join("; ")}. For fresh fruit, veg and meat with no brand, use the regular Woolworths price;
+"avail" = how reliably ALDI Australia stocks it: "yes", "maybe" or "rarely".`;
+async function askPrices(list){
+  const res=await sample.json(`Estimate supermarket prices for these items. Return only a JSON array in the same order, one object per item: {"name":string,"aldi":number,"ww":number,"avail":"yes"|"maybe"|"rarely"}.
+${FIELDS}
+Use the size in the note when given. Items:
+${JSON.stringify(list.map(x=>({name:x.name,note:x.note||"",store:x.store==="ww"?"Woolworths":"Aldi"})))}`,{modelTier:"quick"});
+  return (Array.isArray(res)?res:[]).map(r=>({aldiPrice:numOrNull(r.aldi),wwPrice:numOrNull(r.ww),avail:["yes","maybe","rarely"].includes(r.avail)?r.avail:"yes"}));
+}
+async function estimateItems(list){
+  if(!sample||!list.length)return;
+  const btn=$("est-missing"); if(btn){btn.disabled=true;btn.textContent="Estimating…";}
+  try{
+    const res=await askPrices(list);
+    list.forEach((it,k)=>{const r=res[k];if(r){if(r.aldiPrice!=null)it.aldiPrice=r.aldiPrice;if(r.wwPrice!=null)it.wwPrice=r.wwPrice;it.avail=r.avail;}});
+    save();
+  }catch(e){if(btn)btn.textContent=errCopy(e&&e.code);return;}
+  render();
+}
+
+/* ---------- import from photo, link or text ---------- */
+let sample=null, busy=false, ctl=null, canPhoto=false, mcp=null, photoAccept="image/*";
+(async()=>{
+  try{
+    sample=await claude.use("sample");
+    if(!sample)return;
+    const lim=await sample.limits().catch(()=>null);
+    if(lim&&lim.images){canPhoto=true;photoAccept=lim.images.mediaTypes.join(",");}
+    $("photo-wrap").hidden=false;
+    render();
+  }catch(e){}
+})();
+(async()=>{try{mcp=await claude.use("mcp");}catch(e){}})();
+
+function errCopy(c){
+  return({not_granted:"Claude wasn't allowed to help on this page.",rate_limited:"Too many requests right now. Try again in a minute.",
+    image_rejected:"That photo couldn't be read. Try a different one.",invalid_json:"The answer came back in a format I couldn't read. Try again.",
+    session_expired:"Sign in to Claude again, then retry.",bad_key:"Your Claude API key was refused. Check it in Settings.",offline:"You're offline. Try again when you have signal.",refused:"Claude couldn't read items from that."})[c]||"Something went wrong. Try again.";
+}
+
+let impTab="photo";
+$("import-btn").onclick=()=>openImport();
+function openImport(){
+  openSheet(`<h2>Add items</h2>
+    <div class="seg imp-tabs">${[["photo","Photo"],["link","Link"],["text","Text"]].map(([v,l])=>`<button type="button" data-imp="${v}" aria-pressed="${impTab===v}">${l}</button>`).join("")}</div>
+    <div id="imp-body"></div>`);
+  scrim.querySelectorAll("[data-imp]").forEach(b=>b.onclick=()=>{impTab=b.dataset.imp;openImport();});
+  const body=$("imp-body");
+  if(impTab==="photo"){
+    body.innerHTML=canPhoto?`<p class="status">A shopping list, a recipe, or a screenshot of a recipe page all work. Crossed-out items are skipped.</p>
+      <div class="actions">
+        <label class="btn filebtn">Choose a photo<input type="file" id="imp-file" accept="${esc(photoAccept)}"></label>
+        <label class="btn ghost filebtn">Take a photo<input type="file" id="imp-cam" accept="image/*" capture="environment"></label>
+      </div>
+      <p class="status">Buttons not opening anything? Copy the picture (in Photos or Gallery, open it, then Share → Copy), then long-press the box below and tap Paste.</p>
+      <div id="imp-paste" class="pastebox" contenteditable="true" role="textbox" aria-label="Paste a picture here" inputmode="none"></div>`:`<p class="status">Photos can't be read in this view. Try the Text tab.</p>`;
+    if(canPhoto){
+      const pb=$("imp-paste");
+      const takeImage=list=>{for(const it of list||[]){const f=it.getAsFile?it.getAsFile():it;if(f&&/^image\//.test(f.type)){extract({image:f,label:"photo"});return true;}}return false;};
+      pb.addEventListener("paste",e=>{e.preventDefault();const dt=e.clipboardData;
+        if(!(dt&&(takeImage(dt.files)||takeImage(dt.items)))){pb.textContent="";pb.dataset.msg="That wasn't a picture. Copy the image itself, then paste.";}});
+      pb.addEventListener("drop",e=>{e.preventDefault();takeImage(e.dataTransfer&&e.dataTransfer.files);});
+      pb.addEventListener("dragover",e=>e.preventDefault());
+      pb.addEventListener("input",async()=>{ // some keyboards insert the image instead of firing paste
+        const img=pb.querySelector("img"); if(!img)return;
+        try{const b=await (await fetch(img.src)).blob();pb.innerHTML="";extract({image:new File([b],"pasted",{type:b.type||"image/png"}),label:"photo"});}
+        catch(e){pb.innerHTML="";pb.dataset.msg="Couldn't use that picture. Try Choose a photo or the Text tab.";}
+      });
+    }
+    if(canPhoto)["imp-file","imp-cam"].forEach(id=>$(id).onchange=e=>{const f=e.target.files&&e.target.files[0];if(f)extract({image:f,label:"photo"});});
+  }else if(impTab==="link"){
+    const phone=matchMedia("(pointer:coarse)").matches&&!(mcp&&mcp.linksOnPhone);
+    body.innerHTML=`${phone?`<p class="status">Phones can't open links from inside this list. The quickest way: open the recipe page, take a screenshot, then use Photo. Or select the ingredients on the page, copy, and paste them into Text.</p>
+      <div class="actions"><button class="btn" type="button" id="imp-tophoto">Use a screenshot</button><button class="btn ghost" type="button" id="imp-totext">Paste the text</button></div>
+      <p class="status">On a computer with the Claude desktop app, you can paste the link here instead:</p>`
+      :mcp&&mcp.linksOnPhone?`<p class="status">Paste a recipe or product link and Claude reads the ingredients from the page.</p>`
+      :`<p class="status">Paste a recipe or product link. Opening links needs the Claude desktop app. On a phone, use a screenshot in Photo, or copy the ingredients into Text.</p>`}
+      <input id="imp-url" type="url" inputmode="url" placeholder="https://…" style="font:inherit;width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg)">
+      <p class="status err" id="imp-err" hidden></p>
+      <div class="actions"><span class="sp"></span><button class="btn" id="imp-go" type="button">Read link</button></div>`;
+    $("imp-go").onclick=readLink;
+    if(phone){$("imp-tophoto").onclick=()=>{impTab="photo";openImport();};$("imp-totext").onclick=()=>{impTab="text";openImport();};}
+  }else{
+    body.innerHTML=`<p class="status">Paste a recipe, an ingredient list or a list someone sent you.</p>
+      <textarea id="imp-text" placeholder="2 cups coconut milk&#10;1 stalk lemongrass&#10;…"></textarea>
+      <div class="actions"><span class="sp"></span><button class="btn" id="imp-go" type="button">Read text</button></div>`;
+    $("imp-go").onclick=()=>{const t=$("imp-text").value.trim();if(t)extract({text:t.slice(0,20000),label:"text"});};
+  }
+}
+
+async function readLink(){
+  const url=$("imp-url").value.trim(), err=$("imp-err");
+  if(!/^https?:\/\/\S+\.\S+/.test(url)){err.hidden=false;err.textContent="Enter a full link starting with https://";return;}
+  if(!mcp){err.hidden=false;err.textContent="Links can't be opened here. Use a screenshot in Photo, or paste the ingredients into Text.";return;}
+  $("imp-go").disabled=true;$("imp-go").textContent="Opening…";
+  try{
+    await mcp.callTool("host:claude_browser","navigate",{url});
+    const r=await mcp.callTool("host:claude_browser","get_page_text",{});
+    let text=typeof r.payload==="string"?r.payload:(r.content||[]).filter(c=>c.type==="text").map(c=>c.text).join("\n");
+    if(!text||text.trim().length<40)throw{code:"empty"};
+    extract({text:text.slice(0,30000),label:"link",url});
+  }catch(e){
+    err.hidden=false;
+    err.textContent=e&&(e.code==="server_not_connected"||e.code==="not_granted"||e.code==="unavailable")
+      ?"Links only open in the Claude desktop app. Take a screenshot and use Photo, or paste the ingredients into Text."
+      :"Couldn't read that page. Take a screenshot and use Photo, or paste the ingredients into Text.";
+    $("imp-go").disabled=false;$("imp-go").textContent="Read link";
+  }
+}
+
+async function extract(src){
+  busy=true; ctl=new AbortController();
+  openSheet(`<h2>Reading your ${src.label}…</h2><p class="status">Picking out items and estimating prices. This can take up to a minute.</p>
+    <div class="actions"><span class="sp"></span><button class="btn ghost" id="p-stop" type="button">Stop</button></div>`);
+  $("p-stop").onclick=()=>ctl.abort();
+  const what=src.image?"The image is a photo of a handwritten or printed shopping list, a recipe, a recipe web page, or products."
+    :`Below is ${src.url?"the text of the web page "+src.url:"text the user pasted"}. It may be a recipe, an ingredient list or a shopping list.`;
+  const prompt=`${what} Extract every grocery or household item to buy.
+Skip anything crossed out. For recipes, list each ingredient once, ignoring basics like water; fold amounts into qty (packs to buy) and note (size).
+Default store is "${state.view==="ww"?"ww":"aldi"}"; use "ww" when the item is marked (ww), Woolies or Woolworths, "aldi" when marked Aldi, and "ww" for items ALDI Australia rarely stocks.
+If it is a recipe, put its title in "recipes" for every ingredient; an item can list several recipes. Otherwise leave recipes empty unless one is written.
+Known recipes: ${state.recipes.map(r=>r.name).join(", ")||"none"}.
+Aisle must be one of: ${AISLES.join(", ")}.
+${FIELDS}
+Reply with only JSON in this shape:
+{"recipe":null,"items":[{"name":"Cherry tomatoes","qty":1,"note":"250g punnet","aisle":"Fruit & veg","store":"aldi","recipes":[],"aldi":2.99,"ww":3.9,"avail":"yes"}]}
+If it is a recipe, set "recipe" to {"title":string,"method":string} with the method steps one per line (keep the original steps); otherwise null.
+qty is a whole number of packs/items (default 1). Use clean, capitalised Australian supermarket names (capsicum not bell pepper, coriander not cilantro, shallots for spring/green onions, beef mince not ground beef, prawns not shrimp, plain flour, cornflour, icing sugar, thickened cream, tomato sauce not ketchup).${src.text?"\n\n---\n"+src.text:""}`;
+  try{
+    const res=await sample.json(prompt,src.image?{images:[src.image],signal:ctl.signal}:{signal:ctl.signal});
+    busy=false;
+    const num=v=>v==null||v===""||!isFinite(+v)?null:+v;
+    const list=Array.isArray(res)?res:(res&&Array.isArray(res.items)?res.items:[]);
+    const rec=res&&!Array.isArray(res)&&res.recipe&&res.recipe.title?res.recipe:null;
+    const items=list.filter(x=>x&&x.name).map(x=>{const store=x.store==="ww"?"ww":"aldi";return{
+      id:uid(),name:auName(String(x.name)),note:String(x.note||"").trim(),qty:Math.max(1,Math.round(+x.qty||1)),
+      aisle:AISLES.includes(x.aisle)?x.aisle:guessAisle(String(x.name)),store,
+      recipes:(Array.isArray(x.recipes)?x.recipes:x.recipe?[x.recipe]:[]).map(r=>String(r).trim()).filter(Boolean),
+      aldiPrice:num(x.aldi??(store==="aldi"?x.price:null)),wwPrice:num(x.ww??(store==="ww"?x.price:x.backup)),avail:["yes","maybe","rarely"].includes(x.avail)?x.avail:"yes",done:false}});
+    items.forEach(seedPrice);
+    if(!items.length){openSheet(`<h2>No items found</h2><p class="status">I couldn't find anything to buy in that ${src.label}.</p><div class="actions"><span class="sp"></span><button class="btn" onclick="closeSheet()">OK</button></div>`);return;}
+    if(rec){
+      const rn=ensureRecipe(String(rec.title)), r=state.recipes.find(x=>x.name===rn);
+      items.forEach(x=>{if(!x.recipes.some(n=>low(n)===low(rn)))x.recipes.push(rn);});
+      if(rec.method&&!r.notes)r.notes=String(rec.method);
+      save();
+    }
+    reviewImport(items);
+  }catch(e){
+    busy=false;
+    if(e&&e.code==="cancelled"){closeSheet();return;}
+    if(e&&(e.code==="not_granted"||e.code==="sampling_disabled"))$("photo-wrap").hidden=true;
+    openSheet(`<h2>Couldn't read that</h2><p class="status err">${esc(errCopy(e&&e.code))}</p><div class="actions"><span class="sp"></span><button class="btn" onclick="closeSheet()">OK</button></div>`);
+  }
+}
+
+function reviewImport(items){
+  // merge double-ups inside the import itself first
+  const merged=[];
+  items.forEach(x=>{const m=merged.find(y=>norm(y.name)===norm(x.name));if(m){m.qty+=x.qty;x.recipes.forEach(r=>{if(!m.recipes.includes(r))m.recipes.push(r)});}else merged.push(x);});
+  items=merged; items.forEach(initNeeds);
+  // what the existing line would become after merging
+  const after=x=>{const d=findDup(x.name);if(!d)return x.qty;const t={...d,needs:{...(d.needs||{})},recipes:[...d.recipes]};mergeInto(t,x);return t.qty;};
+  const ex=n=>findDup(n), dup=n=>!!ex(n);
+  const cost=items.reduce((a,x)=>a+(priceOf(x)||0)*x.qty,0);
+  openSheet(`<h2>Add ${items.length} item${items.length>1?"s":""}?</h2>
+    <p class="status">Untick anything you already have. Items already on your list are unticked; tick one to raise its quantity instead of adding a second line. About ${money(cost)} if you add them all. You can edit each item after adding it.</p>
+    <div>${items.map((x,k)=>`<label class="rv"><input type="checkbox" id="pv-${k}" data-k="${k}" ${dup(x.name)?"":"checked"}>
+      <span class="txt"><span class="name">${x.qty>1?`<span class="qty">${x.qty}×</span>`:""}${esc(x.name)}${x.note?` <span class="note">${esc(x.note)}</span>`:""}</span>
+      <span class="note">${storeName(x.store)} · ${esc(x.aisle)}${x.recipes.length?" · "+esc(x.recipes.join(", ")):""}${dup(x.name)?` · on list as ${ex(x.name).qty||1}×${after(x)!==(ex(x.name).qty||1)?` · tick to make it ${after(x)}×`:" · already counted"}`:""}</span>
+      ${availText(x)?`<span class="avail">${esc(availText(x))}</span>`:""}</span>
+      <span class="price">${priceOf(x)!=null?money(priceOf(x)*x.qty):"–"}</span></label>`).join("")}</div>
+    <div class="actions"><span class="sp"></span><button class="btn ghost" id="pv-cancel">Cancel</button><button class="btn" id="pv-add">Add selected</button></div>`);
+  $("pv-cancel").onclick=closeSheet;
+  $("pv-add").onclick=()=>{
+    // every recipe ingredient is saved to the recipe, even ones left off this shop
+    items.forEach(x=>{x.recipes=x.recipes.map(ensureRecipe);x.recipes.forEach(r=>rememberIngredient(r,x));});
+    document.querySelectorAll(".rv input:checked").forEach(c=>{const x=items[c.dataset.k],d=findDup(x.name);if(d)mergeInto(d,x);else state.items.push(x);});
+    save();closeSheet();render();
+  };
+}
+
+// used by the standalone app's Settings (backup and restore)
+window.FS={
+  backup:()=>({app:"fortnight-shop",version:1,at:new Date().toISOString(),items:state.items,recipes:state.recipes,shops:state.shops,aisles:state.aisles}),
+  restore(b){
+    if(!b||!Array.isArray(b.items)||!Array.isArray(b.recipes))throw new Error("That file isn't a Fortnight Shop backup.");
+    ["items","recipes","shops","aisles"].forEach(c=>{state[c].length=0;(b[c]||[]).forEach(o=>state[c].push(JSON.parse(JSON.stringify(o))));});
+    state.items.forEach(i=>{i.recipes=i.recipes||[];if(!i.needs)i.needs={_own:i.qty||1};toTwoPrices(i);});
+    state.recipes.forEach(r=>{r.ingredients=r.ingredients||[];r.notes=r.notes||"";if(!r.id)r.id=uid();r.ingredients.forEach(toTwoPrices);});
+    save(); render();
+  }
+};
+// set-up that needs the helpers above
+state.recipes.forEach(r=>{if(!r.id)r.id=uid();});
+if(!state.shops.length)seedShop();
+
+/* ---------- shared household list ----------
+   Items live at items/<id> and recipes at recipes/<id>, one document each, so two people
+   ticking at the same time never overwrite each other. Tabs and "Hide ticked" stay per person. */
+let sdb=null, shared=false, readOnly=false, syncTimer=null;
+const synced={items:{},recipes:{},shops:{},aisles:{}}, pendingDel=new Set(), chains={};
+const stable=v=>Array.isArray(v)?"["+v.map(stable).join(",")+"]":v&&typeof v==="object"?"{"+Object.keys(v).filter(k=>v[k]!==undefined).sort().map(k=>JSON.stringify(k)+":"+stable(v[k])).join(",")+"}":JSON.stringify(v===undefined?null:v);
+const bodyOf=o=>{const{id,...rest}=o;return stable(rest);};
+function setSync(st,txt){const el=$("sync");el.dataset.s=st;el.textContent=txt;}
+function queueSync(){if(!shared||readOnly)return;clearTimeout(syncTimer);syncTimer=setTimeout(flush,500);}
+// what this phone last agreed with the shared list, kept so edits made offline are sent when it reconnects
+const SYNC_KEY=KEY+"-synced";
+let syncSaveT=0;
+function saveSynced(){clearTimeout(syncSaveT);syncSaveT=setTimeout(()=>{try{localStorage.setItem(SYNC_KEY,JSON.stringify(synced))}catch(e){}},300);}
+let failed=false;
+function write(path,fn){
+  chains[path]=(chains[path]||Promise.resolve()).then(fn).then(()=>{
+    if(failed){failed=false;setSync("live",liveText());}
+  }).catch(e=>{
+    if(e&&e.code==="invalid_argument"){readOnly=true;setSync("ro","View only. Ask the owner to invite you as an Editor to make changes.");return;}
+    if(e&&e.code==="quota_exceeded"){setSync("err","The shared list is full. Remove some old items or recipes.");return;}
+    // forget that this one was sent, so it goes again when the connection is back
+    const [c,id]=path.split("/");
+    if(synced[c]){const here=(state[c]||[]).some(o=>o.id===id); if(here)delete synced[c][id]; else synced[c][id]="__retry-delete";}
+    pendingDel.delete(path); saveSynced();
+    failed=true; setSync("err","Offline. Your changes are saved on this phone and will sync when you're back online.");
+  });
+}
+const liveText=()=>window.STANDALONE?"Synced · live":"Shared with your household · live";
+addEventListener("online",()=>{if(shared){queueSync();}});
+document.addEventListener("visibilitychange",()=>{if(!document.hidden&&shared)queueSync();});
+function flush(){
+  if(!shared||readOnly)return;
+  [["items",state.items],["recipes",state.recipes],["shops",state.shops],["aisles",state.aisles]].forEach(([col,arr])=>{
+    const here=new Set();
+    arr.forEach((o,k)=>{
+      if(!o.id)o.id=uid();
+      if(col==="items"&&o.t==null)o.t=Date.now()+k;
+      here.add(o.id);
+      const b=bodyOf(o);
+      if(synced[col][o.id]!==b){synced[col][o.id]=b;const data=JSON.parse(b);write(col+"/"+o.id,()=>sdb.doc(col+"/"+o.id).set(data));}
+      saveSynced();
+    });
+    Object.keys(synced[col]).forEach(id=>{
+      if(here.has(id))return;
+      delete synced[col][id]; const path=col+"/"+id; pendingDel.add(path);
+      write(path,()=>sdb.doc(path).delete().finally(()=>pendingDel.delete(path)));
+    });
+  });
+  saveSynced();
+}
+let redraw=0, shopsSeen=false;
+function applySnap(col,snap){
+  const arr=state[col], seen=new Set();
+  snap.docs.forEach(d=>{
+    if(pendingDel.has(col+"/"+d.id))return;
+    seen.add(d.id);
+    const data=d.data(), b=stable(data);
+    let o=arr.find(x=>x.id===d.id);
+    if(o){
+      const mine=bodyOf(o);
+      // changed on this phone and not sent yet (or a send failed offline): keep it and send it
+      if(mine!==b&&(synced[col][d.id]===undefined||mine!==synced[col][d.id])){if(synced[col][d.id]===undefined)synced[col][d.id]=b;queueSync();return;}
+      if(bodyOf(o)!==b){Object.keys(o).forEach(k=>{if(k!=="id")delete o[k]});Object.assign(o,JSON.parse(JSON.stringify(data)));}
+    }else{o={...JSON.parse(JSON.stringify(data)),id:d.id};arr.push(o);}
+    synced[col][d.id]=b;
+  });
+  // gone from the shared list (someone else removed it)
+  for(let k=arr.length-1;k>=0;k--){const o=arr[k];if(synced[col][o.id]!==undefined&&!seen.has(o.id)){delete synced[col][o.id];arr.splice(k,1);}}
+  if(col==="items")arr.sort((a,b)=>(a.t||0)-(b.t||0));
+  arr.forEach(o=>{if(col==="items"){o.recipes=o.recipes||[];if(!o.needs){o.needs={_own:o.qty||1};}toTwoPrices(o);}else if(col==="recipes"){o.ingredients=o.ingredients||[];o.notes=o.notes||"";o.ingredients.forEach(toTwoPrices);}else if(col==="shops"){o.recipes=o.recipes||[];}});
+  if(col!=="shops"&&shared&&!readOnly)queueSync(); // writes back any items converted to two prices
+  if(col==="shops"&&!shopsSeen){shopsSeen=true;
+    // a shared list from before the Made tab: set up the current shop once everything has loaded
+    if(!arr.length&&!readOnly)setTimeout(()=>{if(!curShop()){seedShop();save();render();}},2500);}
+  try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){}
+  saveSynced();
+  cancelAnimationFrame(redraw); redraw=requestAnimationFrame(()=>{
+    // keep the screen steady while someone is typing in the list
+    const a=document.activeElement; if(a&&a.closest&&a.closest("#list")&&a.matches("input,textarea"))return;
+    render();
+  });
+}
+(async()=>{
+  try{sdb=await claude.use("db");}catch(e){sdb=null;}
+  if(!sdb){setSync("local","Saved on this device only");return;}
+  setSync("local","Connecting to the shared list…");
+  try{
+    let u=null; try{u=await claude.use("user");}catch(e){}
+    const canWrite=u&&u.can?await Promise.resolve(u.can("data.write")).catch(()=>null):null;
+    if(canWrite===false){readOnly=true;}
+    const meta=sdb.doc("meta/info");
+    let m=await meta.get();
+    if(!m.exists&&!readOnly){
+      // first time on the shared list: whoever opens it first brings their saved list across, once
+      const lease=await meta.acquire({holder:uid(),ttlMs:20000});
+      m=await meta.get();
+      if(lease.acquired&&!m.exists){
+        shared=true;
+        state.recipes.forEach(r=>{if(!r.id)r.id=uid();});
+        flush();
+        await Promise.all(Object.values(chains));
+        await meta.set({seeded:true,at:new Date().toISOString()});
+      }else{await new Promise(r=>setTimeout(r,1500));}
+    }
+    shared=true;
+    const localAisles=state.aisles.slice();
+    let prev=null; try{prev=JSON.parse(localStorage.getItem(SYNC_KEY));}catch(e){}
+    if(prev&&typeof prev==="object"&&Object.keys(prev).some(c=>prev[c]&&Object.keys(prev[c]).length)){
+      // this phone has synced before: keep its copy, including anything changed while offline, and merge
+      ["items","recipes","shops","aisles"].forEach(c=>{synced[c]=Object.assign(synced[c],prev[c]||{});});
+    }else{
+      // first time on this phone: the shared list replaces the copy here (nothing local is pushed back)
+      state.items.length=0; state.recipes.length=0; state.shops.length=0; state.aisles.length=0;
+      ["items","recipes","shops","aisles"].forEach(c=>Object.keys(synced[c]).forEach(k=>delete synced[c][k]));
+    }
+    const onErr=e=>setSync("err",e&&e.code==="revoked"?"You no longer have access to the shared list.":e&&e.code==="offline"?"Offline. Showing the list saved on this phone.":"Lost the connection to the shared list. Reopen the list to reconnect.");
+    sdb.collection("items").onSnapshot(s=>applySnap("items",s),onErr);
+    sdb.collection("recipes").onSnapshot(s=>applySnap("recipes",s),onErr);
+    sdb.collection("shops").onSnapshot(s=>applySnap("shops",s),onErr);
+    let aislesFirst=true;
+    sdb.collection("aisles").onSnapshot(s=>{applySnap("aisles",s);
+      if(aislesFirst){aislesFirst=false;let add=false;localAisles.forEach(a=>{if(!state.aisles.some(x=>x.id===a.id)){state.aisles.push(a);add=true;}});if(add)save();}},onErr);
+    setSync(readOnly?"ro":"live",readOnly?"View only. Ask the owner to invite you as an Editor to make changes.":liveText());
+    setTimeout(queueSync,1500); // send anything changed while offline
+  }catch(e){
+    shared=false; setSync("local","Couldn't reach the shared list, so changes are saved on this device only.");
+  }
+})();
+
+render();
+</script>
+
+<script>
+if ("serviceWorker" in navigator) {
+  addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+}
+</script>
+</body>
+</html>
