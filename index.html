@@ -20,7 +20,7 @@ body{margin:0;font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif
 img{max-width:100%}
 [hidden]{display:none!important}
 </style>
-<script>window.APP_VERSION="2026.11.11-1546";</script>
+<script>window.APP_VERSION="2026.11.12-0842";</script>
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.97.0"></script>
 <script src="standalone.js"></script>
@@ -336,7 +336,7 @@ html.sheet-open,html.sheet-open body{overflow:hidden}
   </div>
 </div>
 
-<button type="button" class="ai-fab" id="ai-fab" hidden aria-label="Ask Claude">✦ Ask Claude</button>
+<button type="button" class="ai-fab" id="ai-fab" aria-label="Ask Claude">✦ Ask Claude</button>
 <div class="scrim" id="scrim" hidden></div>
 
 <script>
@@ -614,7 +614,7 @@ function availText(i){
   return i.avail==="rarely"?`Aldi rarely stocks this${b}`:`Not always at Aldi${b}`;
 }
 function render(){
-  const fab=$("ai-fab"); if(fab){fab.hidden=!sample;fab.onclick=openAssistant;}
+  const fab=$("ai-fab"); if(fab){fab.hidden=false;fab.onclick=openAssistant;}
   if(tripWW()&&state.view==="aldi")state.view="ww"; // nothing to buy at Aldi on a Woolies-only trip
   const v=state.view;
   $("app").classList.toggle("ww-mode",v==="ww");
@@ -1496,6 +1496,16 @@ function aiDraw(){
   $("ai-send").textContent=aiBusy?"Stop":"Send";
 }
 function openAssistant(){
+  if(!sample){ // no Claude connection on this phone yet
+    const sa=window.STANDALONE;
+    openSheet(`<h2>Ask Claude</h2>
+      <p class="status">${sa?"Ask Claude needs a Claude API key on this phone. Add one in <strong>Settings → Claude</strong> (get it from platform.claude.com → API keys). It also turns on photo and link reading and price estimates."
+        :"Claude isn't available in this view right now. Open the list in the Claude app or at claude.ai while signed in, then try again."}</p>
+      <div class="actions"><span class="sp"></span>${sa?`<button class="btn" type="button" id="ai-setkey">Open Settings</button>`:`<button class="btn ghost" type="button" id="ai-ok">OK</button>`}</div>`);
+    if($("ai-setkey"))$("ai-setkey").onclick=()=>{closeSheet();sa.openSettings();setTimeout(()=>{const k=$("fs-ck");if(k){k.scrollIntoView({block:"center"});k.focus();}},150);};
+    if($("ai-ok"))$("ai-ok").onclick=closeSheet;
+    return;
+  }
   openSheet(`<div class="ai-wrap"><div class="ai-head"><h2>Ask Claude</h2><button class="link" type="button" id="ai-new">New chat</button></div>
     <div class="ai-log" id="ai-log" aria-live="polite"></div>
     <form class="ai-form" id="ai-form"><textarea id="ai-in" rows="1" placeholder="Ask Claude…" aria-label="Message to Claude"></textarea><button class="btn" type="submit" id="ai-send">Send</button></form></div>`);
