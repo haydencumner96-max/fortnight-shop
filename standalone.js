@@ -405,7 +405,12 @@
     open(`<h2>Settings</h2><div class="fs-set">
       <section><h3>Account</h3>
         <p class="status">Signed in as <strong>${esc(user ? user.email : "")}</strong>. Your list syncs to every phone signed in with this account.</p>
-        <div class="row"><button class="btn ghost" type="button" id="fs-out">Sign out</button></div></section>
+        <div class="row"><button class="btn ghost" type="button" id="fs-out">Sign out</button></div>
+        <label class="status" for="fs-pw1">Change the shared password (both phones use it next time they sign in)</label>
+        <input type="password" id="fs-pw1" placeholder="New password, at least 8 characters" autocomplete="new-password">
+        <input type="password" id="fs-pw2" placeholder="Type it again" autocomplete="new-password">
+        <div class="row"><button class="btn ghost" type="button" id="fs-pwgo">Change password</button></div>
+        <p class="status" id="fs-pwm"></p></section>
       <section><h3>Claude (photos, links and prices)</h3>
         <p class="status">Reading photos, recipe links and estimating prices use your Claude API key, saved on this phone only. Get one at platform.claude.com under API keys. Each photo or link costs a few cents.</p>
         <input type="password" id="fs-ck" placeholder="sk-ant-…" value="${esc(c.claudeKey)}" autocomplete="off" aria-label="Claude API key">
@@ -432,6 +437,20 @@
       const done = () => ($("fs-copy").textContent = "Copied");
       if (navigator.clipboard) navigator.clipboard.writeText(linkBox.value).then(done, () => { linkBox.select(); });
       else linkBox.select();
+    };
+    $("fs-pwgo").onclick = async () => {
+      const a = $("fs-pw1").value, b = $("fs-pw2").value, m = $("fs-pwm");
+      if (a.length < 8) { m.textContent = "Use at least 8 characters."; return; }
+      if (a !== b) { m.textContent = "The two passwords don't match."; return; }
+      m.textContent = "Changing…";
+      try {
+        const { error } = await client().auth.updateUser({ password: a });
+        if (error) throw error;
+        $("fs-pw1").value = $("fs-pw2").value = "";
+        m.textContent = "Password changed. Use the new one next time either phone signs in.";
+      } catch (e) {
+        m.textContent = isNetErr(e) ? "No connection. Try again when you have signal." : /reauth|recent/i.test(e.message || "") ? "For safety, sign out and back in, then change it." : (e.message || "Couldn't change the password.");
+      }
     };
     $("fs-out").onclick = async () => { try { await client().auth.signOut(); } catch (e) {} location.reload(); };
     $("fs-cks").onclick = () => { writeCfg({ claudeKey: $("fs-ck").value.trim() }); location.reload(); };
