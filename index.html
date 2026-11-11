@@ -20,7 +20,7 @@ body{margin:0;font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif
 img{max-width:100%}
 [hidden]{display:none!important}
 </style>
-<script>window.APP_VERSION="2026.11.11-1509";</script>
+<script>window.APP_VERSION="2026.11.11-1546";</script>
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.97.0"></script>
 <script src="standalone.js"></script>
@@ -134,6 +134,35 @@ section.unset h2{color:var(--ww)}
 .aislegrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(76px,1fr));gap:6px}
 .aislegrid button{font:inherit;font-size:.85rem;min-height:44px;border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:10px;cursor:pointer;padding:4px}
 .aislegrid button[aria-pressed="true"]{background:var(--ww-soft);border-color:var(--ww);color:var(--ww);font-weight:700}
+.ai-fab{position:fixed;z-index:15;right:max(16px,calc(env(safe-area-inset-right,0px) + 12px));bottom:calc(16px + env(safe-area-inset-bottom,0px));font:inherit;font-weight:700;font-size:.95rem;
+  border:0;border-radius:999px;padding:13px 18px;background:var(--rec);color:var(--surface);box-shadow:0 6px 18px rgba(0,0,0,.18);cursor:pointer;min-height:48px}
+html.sheet-open .ai-fab{display:none}
+.wrap{padding-bottom:calc(90px + env(safe-area-inset-bottom,0px))}
+.ai-wrap{display:grid;grid-template-rows:auto 1fr auto;gap:10px;height:calc(100dvh - 110px);min-height:0}
+.ai-head{display:flex;align-items:center;justify-content:space-between;padding-right:44px}
+.ai-head h2{margin:0}
+.ai-log{overflow-y:auto;min-height:0;display:flex;flex-direction:column;gap:10px;overscroll-behavior:contain;padding-bottom:6px}
+.ai-msg{max-width:88%;border-radius:14px;padding:10px 12px;font-size:.95rem;line-height:1.45;overflow-wrap:anywhere}
+.ai-msg p{margin:0}.ai-msg p+p{margin-top:6px}
+.ai-msg ul{margin:4px 0;padding:0 0 0 18px;background:none;border:0;border-radius:0;overflow:visible;list-style:disc}
+.ai-msg li{display:list-item;min-height:0;border:0;padding:1px 0;gap:0}
+.ai-msg.user{align-self:flex-end;background:var(--rec);color:var(--surface);border-bottom-right-radius:4px}
+.ai-msg.assistant{align-self:flex-start;background:var(--bg);border:1px solid var(--line);border-bottom-left-radius:4px}
+.ai-did{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}
+.ai-did span{font-size:.75rem;color:var(--accent);background:var(--accent-soft);border-radius:999px;padding:2px 8px}
+.ai-wait{display:flex;gap:5px;padding:14px}
+.ai-wait span{width:7px;height:7px;border-radius:50%;background:var(--muted);animation:aib 1s infinite ease-in-out}
+.ai-wait span:nth-child(2){animation-delay:.15s}.ai-wait span:nth-child(3){animation-delay:.3s}
+@keyframes aib{0%,80%,100%{opacity:.3;transform:translateY(0)}40%{opacity:1;transform:translateY(-3px)}}
+.ai-hello{display:grid;gap:10px;color:var(--muted)}
+.ai-hello p{margin:0}
+.ai-chips{display:flex;flex-wrap:wrap;gap:6px}
+.ai-chips button{font:inherit;font-size:.85rem;text-align:left;border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:12px;padding:8px 10px;cursor:pointer}
+.ai-form{display:flex;gap:8px;align-items:flex-end}
+.sheet .ai-form textarea{min-height:44px;height:44px}
+.ai-form textarea{flex:1;min-width:0;font:inherit;font-size:16px;resize:none;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--fg);max-height:140px}
+.ai-form .btn{min-height:44px}
+@media (prefers-reduced-motion:reduce){.ai-wait span{animation:none}}
 .mini-x{font:inherit;font-size:1.2rem;border:0;background:transparent;color:var(--muted);width:40px;align-self:stretch;cursor:pointer;flex:none}
 .addshop select{flex:1;min-width:0;width:0;font:inherit;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--fg)}
 .panel .tools{color:var(--fg)}
@@ -307,6 +336,7 @@ html.sheet-open,html.sheet-open body{overflow:hidden}
   </div>
 </div>
 
+<button type="button" class="ai-fab" id="ai-fab" hidden aria-label="Ask Claude">✦ Ask Claude</button>
 <div class="scrim" id="scrim" hidden></div>
 
 <script>
@@ -584,6 +614,7 @@ function availText(i){
   return i.avail==="rarely"?`Aldi rarely stocks this${b}`:`Not always at Aldi${b}`;
 }
 function render(){
+  const fab=$("ai-fab"); if(fab){fab.hidden=!sample;fab.onclick=openAssistant;}
   if(tripWW()&&state.view==="aldi")state.view="ww"; // nothing to buy at Aldi on a Woolies-only trip
   const v=state.view;
   $("app").classList.toggle("ww-mode",v==="ww");
@@ -1365,6 +1396,132 @@ function reviewImport(items){
     document.querySelectorAll(".rv input:checked").forEach(c=>{const x=items[c.dataset.k],d=findDup(x.name);if(d)mergeInto(d,x);else state.items.push(x);});
     save();closeSheet();render();
   };
+}
+
+/* ---------- Ask Claude: an assistant that can see and change the list ----------
+   Uses the same "sample" call as photo reading. In the standalone app that runs on your Claude API key
+   (Opus by default, or the model chosen in Settings); on claude.ai it runs on your Claude account. */
+const AI_KEY="fs-ai-chat";
+let aiChat=[]; try{aiChat=JSON.parse(localStorage.getItem(AI_KEY))||[];}catch(e){}
+let aiBusy=false, aiCtl=null;
+const aiSave=()=>{try{localStorage.setItem(AI_KEY,JSON.stringify(aiChat.slice(-40)))}catch(e){}};
+function aiContext(){
+  const sh=curShop(), t=totals();
+  return `You are Claude, the assistant built into "Fortnight Shop", the shopping and meal app used by Hayden and his wife in Charters Towers, Queensland, Australia. Today is ${new Date().toLocaleDateString("en-AU",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}.
+How they shop: a big shop every fortnight. Aldi is the main shop; Woolworths Charters Towers for the rest (mid-range to premium brands, never Woolworths own brand; milk is Norco). This trip: ${state.trip==="ww"?"Woolworths only":"Aldi + Woolworths"}. Use Australian names (capsicum, coriander, shallots, mince, prawns) and AUD.
+The shopping list is for the NEXT shop. The current fortnight began ${sh?new Date(sh.date).toDateString():"(not set)"}; its recipes are tracked as made/not made. List now: ${state.items.length} items, est. $${t.total.toFixed(2)}. Saved recipes: ${state.recipes.length}.
+You have tools to read and change the list, recipes and Made history; read before you change, and when you've changed something say briefly what you did. You can search the web for recipes or prices when that helps. Never put an item on the list twice (the add tool merges duplicates). Ask before removing more than a couple of items. Keep replies short and easy to read on a phone: short paragraphs or a few bullet points.`;
+}
+const aiIng=g=>({name:g.name,qty:g.qty||1,note:g.note||"",store:g.store||"aldi"});
+function aiFindRecipe(n){const k=low(n||"");return state.recipes.find(r=>low(r.name)===k)||state.recipes.find(r=>low(r.name).includes(k));}
+let aiDid=[];
+const AI_TOOLS=[
+ {name:"get_shopping_list",description:"Read the list for the next shop: every item with store (aldi or ww), quantity, size note, type, Woolies aisle, estimated price each at its store, whether it's ticked off, and the recipes it's for; plus cost totals.",
+  inputSchema:{type:"object",properties:{}},
+  execute:()=>({trip:state.trip||"both",totals:totals(),items:state.items.map(i=>({name:i.name,store:i.store,qty:i.qty||1,note:i.note||"",type:i.aisle,woolies_aisle:wwAisle(i)||null,price_each:priceOf(i),ticked:!!i.done,recipes:i.recipes}))})},
+ {name:"get_recipes",description:"Read the saved recipes: ingredients (with quantity, size and store), method/notes, when each was last made, and whether it's part of the current fortnight and already made.",
+  inputSchema:{type:"object",properties:{}},
+  execute:()=>{const sh=curShop();return state.recipes.map(r=>({name:r.name,ingredients:r.ingredients.map(aiIng),method:r.notes||"",last_made:lastMade(r)||null,
+    in_current_fortnight:!!(sh&&sh.recipes.includes(r.id)),made_this_fortnight:!!(sh&&madeSince(r,sh.date).length),est_cost:Math.round(recipeCost(r)*100)/100}));}},
+ {name:"add_to_list",description:"Add items to the shopping list. Items already on the list are merged (quantity raised), never duplicated.",
+  inputSchema:{type:"object",properties:{items:{type:"array",items:{type:"object",properties:{
+    name:{type:"string",description:"Australian supermarket name, capitalised"},qty:{type:"integer",minimum:1,description:"packs/items to buy"},
+    note:{type:"string",description:"size or detail, e.g. 400g"},store:{type:"string",enum:["aldi","ww"]},recipe:{type:"string",description:"saved recipe this is for, if any"}},required:["name"]}}},required:["items"]},
+  execute:({items})=>{
+    const out=[];
+    (items||[]).forEach(it=>{
+      const name=auName(String(it.name||"").trim()); if(!name)return;
+      const x={id:uid(),name,note:String(it.note||"").trim(),qty:Math.max(1,Math.round(+it.qty||1)),aisle:guessAisle(name),store:it.store==="ww"?"ww":"aldi",
+        recipes:it.recipe?[ensureRecipe(it.recipe)]:[],done:false};
+      seedPrice(x); initNeeds(x);
+      const d=findDup(name);
+      if(d){mergeInto(d,x);out.push(`${d.name}: now ${d.qty}× (already on the ${storeName(d.store)} list)`);}
+      else{state.items.push(x);out.push(`${x.name}: added ${x.qty}× to ${storeName(x.store)}`);}
+      x.recipes.forEach(r=>rememberIngredient(r,d||x));
+    });
+    save();render();aiDid.push(`Updated the list (${out.length})`);return{done:out};}},
+ {name:"change_item",description:"Change or remove one item on the shopping list: set its total quantity, store, size note, ticked state, or remove it.",
+  inputSchema:{type:"object",properties:{name:{type:"string"},qty:{type:"integer",minimum:1},store:{type:"string",enum:["aldi","ww"]},note:{type:"string"},ticked:{type:"boolean"},remove:{type:"boolean"}},required:["name"]},
+  execute:(a)=>{
+    const it=findDup(a.name); if(!it)return{error:`"${a.name}" isn't on the list.`};
+    if(a.remove){state.items=state.items.filter(i=>i!==it);save();render();aiDid.push("Removed "+it.name);return{done:"removed "+it.name};}
+    if(a.qty){it.needs=it.needs||{};it.needs._own=a.qty-recipeSum(it);syncQty(it);}
+    if(a.store)it.store=a.store; if(a.note!=null)it.note=a.note; if(a.ticked!=null)it.done=!!a.ticked;
+    save();render();aiDid.push("Changed "+it.name);return{done:`${it.name}: ${it.qty}× at ${storeName(it.store)}${it.done?", ticked":""}`};}},
+ {name:"save_recipe",description:"Create or update a saved recipe with its shopping ingredients and method. This saves it to the recipe directory; it doesn't put anything on the list.",
+  inputSchema:{type:"object",properties:{name:{type:"string"},ingredients:{type:"array",items:{type:"object",properties:{name:{type:"string"},qty:{type:"integer",minimum:1},note:{type:"string"},store:{type:"string",enum:["aldi","ww"]}},required:["name"]}},
+    method:{type:"string",description:"steps, one per line"},replace_ingredients:{type:"boolean",description:"true to replace the saved ingredient list instead of adding to it"}},required:["name"]},
+  execute:(a)=>{
+    const rn=ensureRecipe(a.name), r=state.recipes.find(x=>x.name===rn);
+    if(a.replace_ingredients)r.ingredients=[];
+    (a.ingredients||[]).forEach(g=>{const name=auName(String(g.name||""));if(!name)return;
+      const ing={name,qty:Math.max(1,Math.round(+g.qty||1)),note:g.note||"",aisle:guessAisle(name),store:g.store==="ww"?"ww":"aldi"};seedPrice(ing);
+      const k=r.ingredients.findIndex(x=>norm(x.name)===norm(name)); if(k<0)r.ingredients.push(ing); else r.ingredients[k]={...r.ingredients[k],...ing};});
+    if(a.method)r.notes=String(a.method);
+    save();render();aiDid.push("Saved recipe "+r.name);return{done:`${r.name} saved with ${r.ingredients.length} ingredients`};}},
+ {name:"add_recipe_to_list",description:"Put a saved recipe's ingredients on the shopping list for the next shop, leaving off anything in 'skip' (things already at home). Never counts the same recipe twice.",
+  inputSchema:{type:"object",properties:{recipe:{type:"string"},skip:{type:"array",items:{type:"string"}}},required:["recipe"]},
+  execute:(a)=>{
+    const r=aiFindRecipe(a.recipe); if(!r)return{error:`No saved recipe called "${a.recipe}".`};
+    const skip=(a.skip||[]).map(norm), out=[];
+    r.ingredients.forEach(g=>{
+      if(skip.includes(norm(g.name)))return;
+      const it=findDup(g.name);
+      if(it){it.done=false;setNeed(it,r.name,g.qty||1);out.push(`${it.name} ${it.qty}×`);}
+      else{const x={id:uid(),name:g.name,note:g.note||"",qty:g.qty||1,aisle:g.aisle||guessAisle(g.name),store:g.store||"aldi",aldiPrice:g.aldiPrice??null,wwPrice:g.wwPrice??null,avail:g.avail||"yes",recipes:[r.name],needs:{[r.name]:g.qty||1,_own:0},done:false};
+        seedPrice(x);syncQty(x);state.items.push(x);out.push(`${x.name} ${x.qty}×`);}
+    });
+    save();render();aiDid.push(`Added ${r.name} to the list`);return{done:out};}},
+ {name:"mark_recipe_made",description:"Tick a recipe as cooked in the current fortnight (or untick it).",
+  inputSchema:{type:"object",properties:{recipe:{type:"string"},made:{type:"boolean"}},required:["recipe"]},
+  execute:(a)=>{const r=aiFindRecipe(a.recipe); if(!r)return{error:`No saved recipe called "${a.recipe}".`};
+    toggleMade(r,a.made!==false);render();aiDid.push((a.made===false?"Unticked ":"Ticked ")+r.name);return{done:r.name+(a.made===false?" unticked":" marked made")};}}
+];
+// tool results are kept small for the model
+AI_TOOLS.forEach(t=>{const run=t.execute;t.execute=async(input)=>{try{return JSON.stringify(await run(input||{}))}catch(e){return JSON.stringify({error:e.message||String(e)})}};});
+
+function aiMd(t){
+  return esc(t).replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>").split(/\n/).map(l=>/^\s*[-•*]\s+/.test(l)?`<li>${l.replace(/^\s*[-•*]\s+/,"")}</li>`:l?`<p>${l}</p>`:"").join("")
+    .replace(/(<li>.*?<\/li>)+/g,m=>`<ul>${m}</ul>`);
+}
+const AI_SUGGEST=["Plan dinners for this fortnight from my recipes","What's left to cook this fortnight?","Add everything for Laksa to the list","How can I cut this shop's cost?","Find a new easy chicken recipe and save it"];
+function aiDraw(){
+  const log=$("ai-log"); if(!log)return;
+  log.innerHTML=(aiChat.length?"":`<div class="ai-hello"><p>Ask me anything about your shopping, recipes or meal plan. I can see your list and recipes, and I can change them for you.</p>
+      <div class="ai-chips">${AI_SUGGEST.map((s,k)=>`<button type="button" data-sug="${k}">${esc(s)}</button>`).join("")}</div></div>`)
+    +aiChat.map(m=>`<div class="ai-msg ${m.role}">${m.role==="user"?`<p>${esc(m.content)}</p>`:aiMd(m.content)}${m.did&&m.did.length?`<div class="ai-did">${m.did.map(d=>`<span>✓ ${esc(d)}</span>`).join("")}</div>`:""}</div>`).join("")
+    +(aiBusy?`<div class="ai-msg assistant ai-wait"><span></span><span></span><span></span></div>`:"");
+  log.querySelectorAll("[data-sug]").forEach(b=>b.onclick=()=>aiSend(AI_SUGGEST[+b.dataset.sug]));
+  log.scrollTop=log.scrollHeight;
+  $("ai-send").textContent=aiBusy?"Stop":"Send";
+}
+function openAssistant(){
+  openSheet(`<div class="ai-wrap"><div class="ai-head"><h2>Ask Claude</h2><button class="link" type="button" id="ai-new">New chat</button></div>
+    <div class="ai-log" id="ai-log" aria-live="polite"></div>
+    <form class="ai-form" id="ai-form"><textarea id="ai-in" rows="1" placeholder="Ask Claude…" aria-label="Message to Claude"></textarea><button class="btn" type="submit" id="ai-send">Send</button></form></div>`);
+  aiDraw();
+  const inp=$("ai-in");
+  inp.oninput=()=>{inp.style.height="auto";inp.style.height=Math.min(inp.scrollHeight,140)+"px";};
+  inp.onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey&&!matchMedia("(pointer:coarse)").matches){e.preventDefault();$("ai-form").requestSubmit();}};
+  $("ai-form").onsubmit=e=>{e.preventDefault();if(aiBusy){aiCtl&&aiCtl.abort();return;}const t=inp.value.trim();if(!t)return;inp.value="";inp.style.height="auto";aiSend(t);};
+  $("ai-new").onclick=()=>{if(aiBusy)return;aiChat=[];aiSave();aiDraw();};
+}
+async function aiSend(text){
+  if(!sample||aiBusy)return;
+  aiChat.push({role:"user",content:text}); aiBusy=true; aiDid=[]; aiDraw();
+  aiCtl=new AbortController();
+  // the app's context rides along with the first message of the conversation
+  const hist=aiChat.slice(-20).map(m=>({role:m.role,content:m.content}));
+  while(hist.length&&hist[0].role!=="user")hist.shift();
+  hist[0]={role:"user",content:aiContext()+"\n\n---\n\n"+hist[0].content};
+  try{
+    const res=await sample(hist,{tools:AI_TOOLS,modelTier:"complex",web:true,signal:aiCtl.signal,cache:false});
+    aiChat.push({role:"assistant",content:(res&&res.text||"").trim()||"Done.",did:aiDid.slice()});
+  }catch(e){
+    const msg=e&&e.code==="cancelled"?"Stopped.":errCopy(e&&e.code);
+    aiChat.push({role:"assistant",content:msg,did:aiDid.slice()});
+  }
+  aiBusy=false; aiSave(); aiDraw();
 }
 
 // used by the standalone app's Settings (backup and restore)

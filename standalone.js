@@ -11,6 +11,12 @@
   const SB_TABLE = "docs";
   const MODEL_MAIN = "claude-sonnet-5-5";
   const MODEL_QUICK = "claude-haiku-5-5";
+  // the assistant's model, chosen in Settings
+  const AI_MODELS = [
+    ["claude-opus-5-5", "Opus 5.5 (recommended)"],
+    ["claude-fable-5-1", "Fable 5.1 (most powerful, costs more)"],
+    ["claude-sonnet-5-5", "Sonnet 5.5 (faster, cheaper)"],
+  ];
 
   // ---------- settings saved on this phone ----------
   function readCfg() {
@@ -21,6 +27,7 @@
       supabaseUrl: (c.supabaseUrl || base.supabaseUrl || "").trim(),
       supabaseKey: (c.supabaseKey || base.supabaseKey || "").trim(),
       claudeKey: (c.claudeKey || "").trim(),
+      aiModel: c.aiModel || AI_MODELS[0][0],
     };
   }
   function writeCfg(patch) {
@@ -250,6 +257,7 @@
   }
   function makeSample() {
     const sample = async (input, opts = {}) => {
+      if (opts.tools && opts.tools.length) return toolLoop(toMessages(input), opts);
       const messages = await withImages(toMessages(input), opts.images);
       const j = await claudeCall({ model: opts.modelTier === "quick" ? MODEL_QUICK : MODEL_MAIN, max_tokens: 8000, messages }, { signal: opts.signal });
       const text = textOf(j);
@@ -266,6 +274,42 @@
     };
     sample.limits = async () => ({ images: { mediaTypes: ["image/*"] } });
     return sample;
+  }
+
+  // the assistant: Claude calls the app's tools (and web search/fetch) until it has an answer
+  async function toolLoop(messages, opts) {
+    const tools = opts.tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.inputSchema || { type: "object", properties: {} } }));
+    if (opts.web) tools.push({ type: "web_search_20250305", name: "web_search", max_uses: 4, user_location: { type: "approximate", city: "Charters Towers", region: "Queensland", country: "AU", timezone: "Australia/Brisbane" } },
+                              { type: "web_fetch_20250910", name: "web_fetch", max_uses: 3, max_content_tokens: 30000 });
+    const byName = Object.fromEntries(opts.tools.map((t) => [t.name, t]));
+    const model = opts.modelTier === "complex" ? readCfg().aiModel : opts.modelTier === "quick" ? MODEL_QUICK : MODEL_MAIN;
+    const convo = messages.map((m) => ({ role: m.role, content: m.content }));
+    let finalText = "", beta = null;
+    for (let round = 0; round < 12; round++) {
+      const body = { model, max_tokens: 8000, messages: convo, tools };
+      let j;
+      try { j = await claudeCall(body, { signal: opts.signal, beta }); }
+      catch (e) {
+        // older API setups want the web fetch beta flag; retry once with it
+        if (e.code === "bad_request" && !beta && /web_fetch|beta/i.test(e.message)) { beta = "web-fetch-2025-09-10"; round--; continue; }
+        throw e;
+      }
+      const text = textOf(j);
+      if (text) finalText = text;
+      convo.push({ role: "assistant", content: j.content });
+      if (j.stop_reason === "pause_turn") continue; // web search still running server-side
+      if (j.stop_reason !== "tool_use") break;
+      const results = [];
+      for (const b of j.content.filter((b) => b.type === "tool_use")) {
+        const t = byName[b.name];
+        let out;
+        try { out = t ? await t.execute(b.input) : JSON.stringify({ error: "unknown tool" }); }
+        catch (e) { out = JSON.stringify({ error: e.message || String(e) }); }
+        results.push({ type: "tool_result", tool_use_id: b.id, content: typeof out === "string" ? out : JSON.stringify(out) });
+      }
+      convo.push({ role: "user", content: results });
+    }
+    return { text: finalText, truncated: false };
   }
 
   // reading a recipe link: Claude fetches the page and copies out the recipe text
@@ -411,11 +455,14 @@
         <input type="password" id="fs-pw2" placeholder="Type it again" autocomplete="new-password">
         <div class="row"><button class="btn ghost" type="button" id="fs-pwgo">Change password</button></div>
         <p class="status" id="fs-pwm"></p></section>
-      <section><h3>Claude (photos, links and prices)</h3>
-        <p class="status">Reading photos, recipe links and estimating prices use your Claude API key, saved on this phone only. Get one at platform.claude.com under API keys. Each photo or link costs a few cents.</p>
+      <section><h3>Claude (assistant, photos, links and prices)</h3>
+        <p class="status">Ask Claude, reading photos and recipe links, and estimating prices use your Claude API key, saved on this phone only. Get one at platform.claude.com under API keys. Each photo or link costs a few cents.</p>
         <input type="password" id="fs-ck" placeholder="sk-ant-…" value="${esc(c.claudeKey)}" autocomplete="off" aria-label="Claude API key">
         <div class="row"><button class="btn" type="button" id="fs-cks">Save key</button>${c.claudeKey ? `<button class="btn ghost" type="button" id="fs-ckt">Test it</button><button class="link" type="button" id="fs-ckd">Remove</button>` : ""}</div>
-        <p class="status" id="fs-ckm"></p></section>
+        <p class="status" id="fs-ckm"></p>
+        <label class="status" for="fs-model">Ask Claude uses</label>
+        <select id="fs-model" style="font:inherit;font-size:16px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg)">${AI_MODELS.map(([v, l]) => `<option value="${v}" ${v === c.aiModel ? "selected" : ""}>${l}</option>`).join("")}</select>
+        <p class="status">A question to Ask Claude usually costs a few cents on Opus. Fable answers the hardest questions best and costs several times more.</p></section>
       <section><h3>Set up another phone</h3>
         <p class="status">Send this link to your other phone and open it there. It connects the app to your list, then you sign in with the same email and password.</p>
         <label class="tools" style="color:var(--fg)"><input type="checkbox" id="fs-incl"> Include this phone's Claude key</label>
@@ -453,6 +500,7 @@
       }
     };
     $("fs-out").onclick = async () => { try { await client().auth.signOut(); } catch (e) {} location.reload(); };
+    $("fs-model").onchange = (e) => writeCfg({ aiModel: e.target.value });
     $("fs-cks").onclick = () => { writeCfg({ claudeKey: $("fs-ck").value.trim() }); location.reload(); };
     if ($("fs-ckd")) $("fs-ckd").onclick = () => { writeCfg({ claudeKey: "" }); location.reload(); };
     if ($("fs-ckt")) $("fs-ckt").onclick = async () => {
