@@ -3,6 +3,6 @@
    and the database only ever returns rows that belong to that login.
    Leave them empty and the app asks for them on first open instead. */
 window.APP_CONFIG = {
-  supabaseUrl: "",
-  supabaseKey: ""
+  supabaseUrl: "https://neguztfaslunspjppjtw.supabase.co",
+  supabaseKey: "sb_publishable_IEHtl4b4s7YXgwIr-0BN1g_FOPbx7uq"
 };

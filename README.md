@@ -20,8 +20,10 @@ Your list never goes in this repository. It lives in your Supabase project, lock
    and tick **Auto Confirm User**.
 4. **Authentication → Sign In / Providers → Email:** turn **off** "Allow new users to sign up",
    so nobody else can make an account on your project.
-5. **Project Settings → Data API** (or **API Keys**): copy the **Project URL** and the
-   **publishable / anon** key. Never use the `service_role` or secret key in the app.
+5. Tap **Connect** at the top of the project, pick any framework, and copy the **Project URL**
+   (`https://….supabase.co`) and the **publishable key** (`sb_publishable_…`). They're also under
+   **Project Settings → Data API** (URL) and **Project Settings → API Keys** (key).
+   Never use the `sb_secret_` or `service_role` key in the app.
 
 ## 2. Hosting on GitHub Pages
 
