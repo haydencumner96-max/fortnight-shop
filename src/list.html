@@ -108,6 +108,9 @@ section.unset h2{color:var(--ww)}
 .aislegrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(76px,1fr));gap:6px}
 .aislegrid button{font:inherit;font-size:.85rem;min-height:44px;border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:10px;cursor:pointer;padding:4px}
 .aislegrid button[aria-pressed="true"]{background:var(--ww-soft);border-color:var(--ww);color:var(--ww);font-weight:700}
+#aq{font:inherit;font-size:16px;width:100%;box-sizing:border-box;min-height:84px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--fg)}
+a.btn{text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
+a.btn.off{opacity:.55}
 .ai-fab{position:fixed;z-index:15;right:max(16px,calc(env(safe-area-inset-right,0px) + 12px));bottom:calc(16px + env(safe-area-inset-bottom,0px));font:inherit;font-weight:700;font-size:.95rem;
   border:0;border-radius:999px;padding:13px 18px;background:var(--rec);color:var(--surface);box-shadow:0 6px 18px rgba(0,0,0,.18);cursor:pointer;min-height:48px}
 html.sheet-open .ai-fab{display:none}
@@ -286,7 +289,7 @@ html.sheet-open,html.sheet-open body{overflow:hidden}
     <form class="add" id="add-form">
       <input id="add-input" placeholder="Add to Aldi…" autocomplete="off" enterkeyhint="go" aria-label="Add item">
       <button class="btn primary-store" type="submit">Add</button>
-      <span id="photo-wrap" hidden><button class="btn ghost" id="import-btn" type="button" aria-label="Add from a photo, link or text">Import</button></span>
+      <span id="photo-wrap"><button class="btn ghost" id="import-btn" type="button" aria-label="Add from a photo, link or text">Import</button></span>
     </form>
     <div class="tools">
       <label><input type="checkbox" id="hide-done"> Hide ticked</label>
@@ -885,7 +888,7 @@ function guessAisle(n){
   if(/bread|wrap|roll|bun|bagel|muffin/.test(n))return"Bakery";
   if(/soap|paper|bag|foil|cling|rinse|detergent|tissue|spray|sponge|bin liner|wash/.test(n))return"Household";
   if(/apple|banana|onion|tomato|lettuce|carrot|potato|herb|basil|lemon|lime|capsicum|chilli|zucchini|bean|spinach|mushroom|avocado|ginger|coriander|parsley|broccoli|cucumber|fruit|berr|rocket|shallot|grass/.test(n)&&!/dried|paste|jar|tin|can/.test(n))return"Fruit & veg";
-  if(/pasta|rice|noodle|stock|sauce|oil|tin|can|paste|flour|sugar|honey|spice|chip|cereal|olive|jar|vinegar/.test(n))return"Pantry";
+  if(/pasta|rice|noodle|stock|sauce|oil|tin|can|paste|coconut|flour|sugar|honey|spice|chip|cereal|olive|jar|vinegar/.test(n))return"Pantry";
   return"Other";
 }
 $("add-form").onsubmit=e=>{
@@ -1233,6 +1236,7 @@ function errCopy(c){
 let impTab="photo";
 $("import-btn").onclick=()=>openImport();
 function openImport(){
+  if(!sample&&impTab!=="text")impTab="text";
   openSheet(`<h2>Add items</h2>
     <div class="seg imp-tabs">${[["photo","Photo"],["link","Link"],["text","Text"]].map(([v,l])=>`<button type="button" data-imp="${v}" aria-pressed="${impTab===v}">${l}</button>`).join("")}</div>
     <div id="imp-body"></div>`);
@@ -1273,10 +1277,14 @@ function openImport(){
     $("imp-go").onclick=readLink;
     if(phone){$("imp-tophoto").onclick=()=>{impTab="photo";openImport();};$("imp-totext").onclick=()=>{impTab="text";openImport();};}
   }else{
-    body.innerHTML=`<p class="status">Paste a recipe, an ingredient list or a list someone sent you.</p>
-      <textarea id="imp-text" placeholder="2 cups coconut milk&#10;1 stalk lemongrass&#10;…"></textarea>
-      <div class="actions"><span class="sp"></span><button class="btn" id="imp-go" type="button">Read text</button></div>`;
-    $("imp-go").onclick=()=>{const t=$("imp-text").value.trim();if(t)extract({text:t.slice(0,20000),label:"text"});};
+    body.innerHTML=`<p class="status">${sample?"Paste a recipe, an ingredient list or a list someone sent you."
+      :"Paste a reply from the Claude app, or any list with one item per line (e.g. <em>2 x Coconut milk 400ml (Aldi)</em>)."}</p>
+      <textarea id="imp-text" placeholder="2 x Coconut milk 400ml (Aldi)&#10;1 x Laksa paste (Woolies)&#10;…"></textarea>
+      <div class="actions">${navigator.clipboard&&navigator.clipboard.readText?`<button class="btn ghost" id="imp-pastebtn" type="button">Paste</button>`:""}<span class="sp"></span><button class="btn" id="imp-go" type="button">${sample?"Read text":"Add these"}</button></div>
+      ${sample?"":`<p class="status">Photos and links need Claude: <button class="link" type="button" id="imp-ask">ask in the Claude app</button> and paste the reply here.</p>`}`;
+    $("imp-go").onclick=()=>{const t=$("imp-text").value.trim();if(!t)return;if(sample)extract({text:t.slice(0,20000),label:"text"});else importPasted(t);};
+    if($("imp-pastebtn"))$("imp-pastebtn").onclick=async()=>{try{$("imp-text").value=await navigator.clipboard.readText();}catch(e){$("imp-text").focus();}};
+    if($("imp-ask"))$("imp-ask").onclick=openShareAssistant;
   }
 }
 
@@ -1341,7 +1349,6 @@ qty is a whole number of packs/items (default 1). Use clean, capitalised Austral
   }catch(e){
     busy=false;
     if(e&&e.code==="cancelled"){closeSheet();return;}
-    if(e&&(e.code==="not_granted"||e.code==="sampling_disabled"))$("photo-wrap").hidden=true;
     openSheet(`<h2>Couldn't read that</h2><p class="status err">${esc(errCopy(e&&e.code))}</p><div class="actions"><span class="sp"></span><button class="btn" onclick="closeSheet()">OK</button></div>`);
   }
 }
@@ -1470,16 +1477,7 @@ function aiDraw(){
   $("ai-send").textContent=aiBusy?"Stop":"Send";
 }
 function openAssistant(){
-  if(!sample){ // no Claude connection on this phone yet
-    const sa=window.STANDALONE;
-    openSheet(`<h2>Ask Claude</h2>
-      <p class="status">${sa?"Ask Claude needs a Claude API key on this phone. Add one in <strong>Settings → Claude</strong> (get it from platform.claude.com → API keys). It also turns on photo and link reading and price estimates."
-        :"Claude isn't available in this view right now. Open the list in the Claude app or at claude.ai while signed in, then try again."}</p>
-      <div class="actions"><span class="sp"></span>${sa?`<button class="btn" type="button" id="ai-setkey">Open Settings</button>`:`<button class="btn ghost" type="button" id="ai-ok">OK</button>`}</div>`);
-    if($("ai-setkey"))$("ai-setkey").onclick=()=>{closeSheet();sa.openSettings();setTimeout(()=>{const k=$("fs-ck");if(k){k.scrollIntoView({block:"center"});k.focus();}},150);};
-    if($("ai-ok"))$("ai-ok").onclick=closeSheet;
-    return;
-  }
+  if(!sample){openShareAssistant();return;} // no Claude key on this phone: use the Claude app instead
   openSheet(`<div class="ai-wrap"><div class="ai-head"><h2>Ask Claude</h2><button class="link" type="button" id="ai-new">New chat</button></div>
     <div class="ai-log" id="ai-log" aria-live="polite"></div>
     <form class="ai-form" id="ai-form"><textarea id="ai-in" rows="1" placeholder="Ask Claude…" aria-label="Message to Claude"></textarea><button class="btn" type="submit" id="ai-send">Send</button></form></div>`);
@@ -1506,6 +1504,92 @@ async function aiSend(text){
     aiChat.push({role:"assistant",content:msg,did:aiDid.slice()});
   }
   aiBusy=false; aiSave(); aiDraw();
+}
+
+/* ---------- free route: ask in the Claude app, paste the answer back ----------
+   Without an API key the app can't run Claude itself, so it hands the question (plus the list and recipes)
+   to the Claude app, which runs on the person's own Claude account. The reply comes back through Import → Text. */
+const SHARE_FORMAT=`If you suggest anything to buy, or a recipe to save, end your reply with a section in exactly this format so I can paste it into my app:
+
+For Fortnight Shop
+Recipe: <recipe name — only include this line for a recipe>
+2 x Coconut milk 400ml (Aldi)
+1 x Laksa paste (Woolies)
+Method:
+1. <steps — only for a recipe>
+
+Use Australian supermarket names, one item per line, "(Aldi)" or "(Woolies)" after each.`;
+function shareText(question){
+  const sh=curShop();
+  const list=state.items.map(i=>`- ${i.qty>1?i.qty+"× ":""}${i.name}${i.note?" "+i.note:""} (${i.store==="ww"?"Woolies":"Aldi"})${i.done?" ✓":""}`).join("\n")||"(empty)";
+  const recs=full=>state.recipes.map(r=>{
+    const flags=[]; if(sh&&sh.recipes.includes(r.id))flags.push(sh&&madeSince(r,sh.date).length?"made this fortnight":"to cook this fortnight");
+    if(lastMade(r))flags.push("last made "+dayName(lastMade(r)));
+    return `- ${r.name}${flags.length?" ("+flags.join(", ")+")":""}${full?": "+r.ingredients.map(g=>g.name).join(", "):""}`;}).join("\n")||"(none)";
+  const head=`I use my shopping app "Fortnight Shop". ${question}
+
+About us: a household in Charters Towers, Queensland. We do a big shop every fortnight: Aldi first, then Woolworths for the rest (mid-range to premium brands, never Woolworths own brand; Norco milk). Today is ${new Date().toLocaleDateString("en-AU",{weekday:"long",day:"numeric",month:"long"})}.
+
+Shopping list for the next shop:
+${list}
+
+Saved recipes:
+`;
+  let t=head+recs(true)+"\n\n"+SHARE_FORMAT;
+  if(encodeURIComponent(t).length>7500)t=head+recs(false)+"\n\n"+SHARE_FORMAT; // keep the link short enough to open
+  return t;
+}
+const claudeLink=t=>"https://claude.ai/new?q="+encodeURIComponent(t);
+function copyText(t,btn,label){
+  const ok=()=>{if(btn){btn.textContent="Copied";setTimeout(()=>btn.textContent=label,1800);}};
+  if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(t).then(ok,()=>fallback());else fallback();
+  function fallback(){const ta=document.createElement("textarea");ta.value=t;ta.style.position="fixed";ta.style.opacity="0";document.body.appendChild(ta);ta.select();try{document.execCommand("copy");ok();}catch(e){}ta.remove();}
+}
+function openShareAssistant(){
+  const sa=window.STANDALONE;
+  openSheet(`<h2>Ask Claude</h2>
+    <p class="status">Free with your Claude account. Your question opens in the Claude app with your list and recipes attached.</p>
+    <textarea id="aq" rows="3" placeholder="e.g. Plan 7 dinners from my recipes for this fortnight"></textarea>
+    <div class="ai-chips">${AI_SUGGEST.map((s,k)=>`<button type="button" data-aqs="${k}">${esc(s)}</button>`).join("")}</div>
+    <div class="actions"><a class="btn" id="aq-open" href="#" target="_blank" rel="noopener">Ask in the Claude app</a><button class="btn ghost" type="button" id="aq-copy">Copy question</button></div>
+    <p class="status"><strong>Bringing the answer back:</strong> in Claude, copy the reply (or just its <em>For Fortnight Shop</em> part). Then here, tap <strong>Import → Text</strong>, paste, and add. Double-ups are merged as usual.</p>
+    <p class="status">If the question doesn't appear in Claude, tap <strong>Copy question</strong>, open Claude, and paste it.</p>
+    ${sa?`<p class="status">Have a Claude API key? <button class="link" type="button" id="aq-key">Add it in Settings</button> and Claude can change the list for you, right inside the app.</p>`:""}`);
+  const q=$("aq"), a=$("aq-open");
+  const sync=()=>{const t=q.value.trim();a.href=t?claudeLink(shareText(t)):"#";a.classList.toggle("off",!t);};
+  q.oninput=sync; sync();
+  a.onclick=e=>{if(!q.value.trim()){e.preventDefault();q.focus();}};
+  scrim.querySelectorAll("[data-aqs]").forEach(b=>b.onclick=()=>{q.value=AI_SUGGEST[+b.dataset.aqs];sync();});
+  $("aq-copy").onclick=()=>{const t=q.value.trim();if(!t){q.focus();return;}copyText(shareText(t),$("aq-copy"),"Copy question");};
+  if($("aq-key"))$("aq-key").onclick=()=>{closeSheet();sa.openSettings();setTimeout(()=>{const k=$("fs-ck");if(k){k.scrollIntoView({block:"center"});k.focus();}},150);};
+}
+// reads pasted text (a Claude reply, a recipe or any list) into items, without needing Claude
+function parsePasted(text){
+  let lines=String(text||"").split(/\r?\n/);
+  const at=lines.findIndex(l=>/for fortnight shop/i.test(l));
+  if(at>=0)lines=lines.slice(at+1);
+  let recipe="", method=[], inMethod=false; const items=[];
+  for(let raw of lines){
+    let l=raw.replace(/\*\*/g,"").trim();
+    if(!l){continue;}
+    const rm=l.match(/^recipe\s*:\s*(.+)$/i); if(rm){recipe=rm[1].trim();continue;}
+    if(/^(method|steps|instructions)\s*:?\s*$/i.test(l)){inMethod=true;continue;}
+    if(inMethod){method.push(l);continue;}
+    if(/^(#|ingredients\s*:?$|shopping list\s*:?$)/i.test(l)||/:$/.test(l))continue;
+    let store=null;
+    l=l.replace(/\s*[\(\[]\s*(aldi|woolies|woolworths|ww)\s*[\)\]]\s*/i,(m,s)=>{store=/^aldi$/i.test(s)?"aldi":"ww";return " ";}).trim();
+    l=l.replace(/^\s*(\d+[.)])\s+/,"").replace(/\s*✓\s*$/,"");
+    const g=parseLine(l); if(!g||g.name.length>60)continue;
+    const x={id:uid(),name:g.name,note:g.note||"",qty:g.qty||1,aisle:g.aisle,store:store||(state.view==="ww"?"ww":"aldi"),recipes:recipe?[recipe]:[],done:false};
+    seedPrice(x); items.push(x);
+  }
+  return {items,recipe,method:method.join("\n")};
+}
+function importPasted(text){
+  const {items,recipe,method}=parsePasted(text);
+  if(recipe){const rn=ensureRecipe(recipe),r=state.recipes.find(x=>x.name===rn);if(method&&!r.notes)r.notes=method;items.forEach(x=>x.recipes=[rn]);save();}
+  if(!items.length){openSheet(`<h2>No items found</h2><p class="status">Paste one item per line, like "2 x Coconut milk 400ml (Aldi)".</p><div class="actions"><span class="sp"></span><button class="btn" type="button" onclick="closeSheet()">OK</button></div>`);return;}
+  reviewImport(items);
 }
 
 // used by the standalone app's Settings (backup and restore)
