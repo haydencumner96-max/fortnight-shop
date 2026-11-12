@@ -153,6 +153,7 @@ html.sheet-open .ai-fab{display:none}
 .rrow button{flex:1;min-width:0;font:inherit;color:inherit;background:transparent;border:0;width:100%;text-align:left;display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;min-height:58px}
 .rrow .txt{flex:1}
 .rrow .name{font-weight:700}
+.rrow .edit{flex:0 0 auto;width:auto;min-height:0;padding:10px 14px}
 .chev{color:var(--muted);font-size:1.4rem;line-height:1}
 .recipe-sheet{display:grid;gap:12px}
 .madebar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
@@ -720,11 +721,13 @@ function drawRecipeResults(){
       <button type="button" data-open="${idx}">
       <span class="txt"><span class="name">${esc(r.name)}</span>
       <span class="note">${bits.join(" · ")}${ingHit.length?` · has ${esc(ingHit.slice(0,3).join(", "))}`:""}</span></span>
-      <span class="chev" aria-hidden="true">›</span></button></li>`;};
+      <span class="chev" aria-hidden="true">›</span></button>
+      <button class="edit" type="button" data-redit="${idx}" aria-label="Edit ${esc(r.name)}">Edit</button></li>`;};
   const html=hits.map(row).join("");
   if(ul.tagName!=="UL"){ul.outerHTML=`<ul id="rec-results">${html}</ul>`;}else ul.innerHTML=html;
   const list=$("rec-results");
-  list.onclick=e=>{const b=e.target.closest("[data-open]");if(b)openRecipe(+b.dataset.open);};
+  list.onclick=e=>{const ed=e.target.closest("[data-redit]");if(ed){editRecipe(+ed.dataset.redit);return;}
+    const b=e.target.closest("[data-open]");if(b)openRecipe(+b.dataset.open);};
 
 }
 
@@ -841,6 +844,7 @@ function openRecipe(idx){
     <form class="newrec" id="rs-ingform"><input id="rs-ing" placeholder="Add an ingredient…" autocomplete="off" aria-label="New ingredient"><button class="btn ghost" type="submit">Save</button></form>
     <label class="field">Method and notes<textarea id="rs-notes" placeholder="Steps, cooking notes or a link to the recipe">${esc(r.notes)}</textarea></label>
     <div class="actions"><button class="link" id="rs-del" type="button">Delete recipe</button><span class="sp"></span>
+      <button class="btn ghost" id="rs-edit" type="button">Edit</button>
       <button class="btn" id="rs-add" type="button" ${r.ingredients.length?"":"disabled"}>Add to list</button></div>
   </div>`);
   const refresh=()=>{save();render();openRecipe(state.recipes.indexOf(r));};
@@ -865,6 +869,7 @@ function openRecipe(idx){
     state.recipes.splice(state.recipes.indexOf(r),1); save(); closeSheet(); render();
   };
   $("rs-add").onclick=()=>pantryCheck(state.recipes.indexOf(r));
+  $("rs-edit").onclick=()=>editRecipe(state.recipes.indexOf(r));
 }
 
 $("list").addEventListener("change",e=>{
@@ -1183,9 +1188,15 @@ function recipeSources(){
     }
   });
 }
+/* Edit a saved recipe in the same form as New recipe */
+const ingLine=g=>`${(g.qty||1)>1?g.qty+" x ":""}${g.name}${g.note?" "+g.note:""}`;
+function editRecipe(idx){
+  const r=state.recipes[idx]; if(!r)return;
+  newRecipe({edit:r,name:r.name,ings:r.ingredients.map(ingLine).join("\n"),method:r.notes||"",shop:false});
+}
 function newRecipe(pre){
-  pre=pre||{};
-  openSheet(`<h2>New recipe</h2>
+  pre=pre||{}; const ed=pre.edit;
+  openSheet(`<h2>${ed?"Edit recipe":"New recipe"}</h2>
     ${sample?`<div class="field">Fill it in from
       <div class="seg imp-tabs" id="nr-src">${[...(canPhoto?[["photo","Photo"]]:[]),["link","Link"],["text","Paste text"]].map(([v,l])=>`<button type="button" data-src="${v}" aria-pressed="false">${l}</button>`).join("")}</div></div>
     <div id="nr-srcbody" hidden></div>
@@ -1193,15 +1204,16 @@ function newRecipe(pre){
     <label class="field">Recipe name<input id="nr-name" value="${esc(pre.name||"")}" placeholder="e.g. Chicken laksa" autocomplete="off"></label>
     <label class="field">Ingredients, one per line<textarea id="nr-ings" placeholder="2 x Coconut milk 400ml&#10;Laksa paste&#10;Hokkien noodles 450g&#10;Lemongrass">${esc(pre.ings||"")}</textarea></label>
     <label class="field">Method and notes<textarea id="nr-method" placeholder="1. Fry the paste…&#10;2. Add stock and coconut milk…">${esc(pre.method||"")}</textarea></label>
-    <label class="tools" style="font-size:.9rem;color:var(--fg)"><input type="checkbox" id="nr-shop" ${pre.shop===false?"":"checked"}> Add the ingredients to my list now (pantry check first)</label>
+    ${ed?"":`<label class="tools" style="font-size:.9rem;color:var(--fg)"><input type="checkbox" id="nr-shop" ${pre.shop===false?"":"checked"}> Add the ingredients to my list now (pantry check first)</label>`}
     <p class="status err" id="nr-err" hidden></p>
-    <div class="actions"><span class="sp"></span><button class="btn ghost" type="button" id="nr-cancel">Cancel</button><button class="btn" type="button" id="nr-save">Save recipe</button></div>`);
+    <div class="actions"><span class="sp"></span><button class="btn ghost" type="button" id="nr-cancel">Cancel</button><button class="btn" type="button" id="nr-save">${ed?"Save changes":"Save recipe"}</button></div>`);
   if(!pre.name)$("nr-name").focus();
-  $("nr-cancel").onclick=closeSheet;
+  $("nr-cancel").onclick=ed?()=>openRecipe(state.recipes.indexOf(ed)):closeSheet;
   if(sample)recipeSources();
   $("nr-save").onclick=()=>{
     const err=$("nr-err"), name=$("nr-name").value.trim();
     if(!name){err.hidden=false;err.textContent="Give the recipe a name.";$("nr-name").focus();return;}
+    if(ed)return saveEdit(ed,name,err);
     const existing=state.recipes.find(r=>low(r.name)===low(name));
     if(existing&&!$("nr-save").dataset.ok){err.hidden=false;err.textContent=`You already have a recipe called ${existing.name}. Tap Save again to add these ingredients and method to it.`;$("nr-save").dataset.ok="1";return;}
     const rname=ensureRecipe(name), r=state.recipes.find(x=>x.name===rname);
@@ -1217,6 +1229,28 @@ function newRecipe(pre){
     if(sample&&missing.length)estimateItems(missing); // fills in prices in the background
     if($("nr-shop").checked&&r.ingredients.length)pantryCheck(idx); else openRecipe(idx);
   };
+}
+
+function saveEdit(r,name,err){
+  if(low(name)!==low(r.name)&&state.recipes.some(x=>x!==r&&low(x.name)===low(name))){
+    err.hidden=false;err.textContent=`You already have a recipe called ${name}. Pick another name.`;$("nr-name").focus();return;}
+  if(name!==r.name){ // rename: list items tagged with the old name follow it
+    state.items.forEach(i=>{i.recipes=i.recipes.map(x=>x===r.name?name:x);if(i.needs&&i.needs[r.name]!=null){i.needs[name]=i.needs[r.name];delete i.needs[r.name];}});
+    r.name=name;
+  }
+  // unchanged lines keep everything saved with them (store, aisle, prices); changed lines keep them when the name still matches
+  const old=r.ingredients, out=[];
+  $("nr-ings").value.split(/\n+/).forEach(line=>{
+    const same=old.find(g=>ingLine(g)===line.trim());
+    let g=same?{...same}:parseLine(line); if(!g)return;
+    if(!same){const o=old.find(x=>norm(x.name)===norm(g.name));if(o)g={...o,name:g.name,qty:g.qty,note:g.note};}
+    const d=out.find(x=>norm(x.name)===norm(g.name)); if(d)d.qty=(d.qty||1)+(g.qty||1); else out.push(g);
+  });
+  r.ingredients=out; r.notes=$("nr-method").value.trim();
+  save(); render();
+  const missing=out.filter(g=>ingPrice(g)==null);
+  if(sample&&missing.length)estimateItems(missing);
+  openRecipe(state.recipes.indexOf(r));
 }
 
 /* ---------- quick Woolies aisle picker ---------- */
