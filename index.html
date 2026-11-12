@@ -20,7 +20,7 @@ body{margin:0;font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif
 img{max-width:100%}
 [hidden]{display:none!important}
 </style>
-<script>window.APP_VERSION="2026.11.13-0806";</script>
+<script>window.APP_VERSION="2026.11.13-0811";</script>
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.97.0"></script>
 <script src="standalone.js"></script>
@@ -806,6 +806,8 @@ const curShop=()=>state.shops.find(x=>x.id==="current")||null;
 const shopRecipes=()=>{const sh=curShop();return sh?sh.recipes.map(id=>state.recipes.find(r=>r.id===id)).filter(Boolean):[];};
 const madeSince=(r,since)=>(r.made||[]).filter(d=>d>=since).sort().reverse();
 const unmadeInShop=()=>{const sh=curShop();return sh?shopRecipes().filter(r=>!madeSince(r,sh.date).length):[];};
+// a recipe put on the shopping list shows straight away in this fortnight's Made tab
+function addToFortnight(r){const sh=curShop();if(r&&sh&&!sh.recipes.includes(r.id))sh.recipes.push(r.id);}
 function recipesOnList(){
   const ids=new Set();
   state.items.forEach(i=>(i.recipes||[]).forEach(n=>{const r=state.recipes.find(x=>x.name===n);if(r)ids.add(r.id);}));
@@ -819,7 +821,9 @@ function finishShop(carry){
   const k=state.shops.findIndex(x=>x.id==="current");
   if(k>=0){ // the finished fortnight is kept so you can look back at it in the Made tab
     const old=state.shops[k];
-    state.shops[k]={...old,id:"s"+Date.parse(old.date),end:now};
+    // recipes moving to the new fortnight leave the old one, unless they were cooked in it
+    const moved=id=>{const r=state.recipes.find(x=>x.id===id);return ids.includes(id)&&!(r&&madeSince(r,old.date).length);};
+    state.shops[k]={...old,recipes:old.recipes.filter(id=>!moved(id)),id:"s"+Date.parse(old.date),end:now};
   }
   state.shops.push({id:"current",date:now,recipes:ids});
   // keep the last 26 fortnights (about a year)
@@ -1419,6 +1423,7 @@ ${list.map((i,j)=>`${j}. ${i.name}${i.note?" ("+i.note+")":""}`).join("\n")}`,{m
           ["aldiPrice","wwPrice","colesPrice"].forEach(f=>{if(it[f]==null&&g[f]!=null)it[f]=g[f];});}
         else{const n={id:uid(),name:g.name,note:g.note||"",qty:g.qty||1,aisle:g.aisle||guessAisle(g.name),store,aldiPrice:g.aldiPrice??null,wwPrice:g.wwPrice??null,colesPrice:g.colesPrice??null,avail:g.avail||"yes",recipes:[r.name],needs:{[r.name]:g.qty||1,_own:0},done:false};syncQty(n);state.items.push(n);}
       });
+      if(rows.some(need))addToFortnight(r);
       foldExact(); save();closeSheet();render();
     };
   };
@@ -1633,7 +1638,8 @@ function reviewImport(items){
   $("pv-add").onclick=()=>{
     // every recipe ingredient is saved to the recipe, even ones left off this shop
     items.forEach(x=>{x.recipes=x.recipes.map(ensureRecipe);x.recipes.forEach(r=>rememberIngredient(r,x));});
-    document.querySelectorAll(".rv input:checked").forEach(c=>{const x=items[c.dataset.k],d=findDup(x.name);if(d)mergeInto(d,x);else state.items.push(x);});
+    document.querySelectorAll(".rv input:checked").forEach(c=>{const x=items[c.dataset.k],d=findDup(x.name);if(d)mergeInto(d,x);else state.items.push(x);
+      x.recipes.forEach(n=>addToFortnight(state.recipes.find(q=>q.name===n)));});
     save();closeSheet();render();
   };
 }
