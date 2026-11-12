@@ -463,6 +463,9 @@
         <label class="status" for="fs-model">Ask Claude uses</label>
         <select id="fs-model" style="font:inherit;font-size:16px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg)">${AI_MODELS.map(([v, l]) => `<option value="${v}" ${v === c.aiModel ? "selected" : ""}>${l}</option>`).join("")}</select>
         <p class="status">A question to Ask Claude usually costs a few cents on Opus. Fable answers the hardest questions best and costs several times more.</p></section>
+      <section><h3>Shopping list</h3>
+        <p class="status">Check the list for the same item on more than one line, and combine them into one line with the total you need.</p>
+        <div class="row"><button class="btn ghost" type="button" id="fs-dbl">Check for double-ups</button></div></section>
       <section><h3>Set up another phone</h3>
         <p class="status">Send this link to your other phone and open it there. It connects the app to your list, then you sign in with the same email and password.</p>
         <label class="tools" style="color:var(--fg)"><input type="checkbox" id="fs-incl"> Include this phone's Claude key</label>
@@ -477,6 +480,7 @@
         <p class="status">Fortnight Shop ${esc(window.APP_VERSION || "")}. Updates install by themselves the next time you open the app with signal.</p></section>
     </div>`);
     const $ = (id) => document.getElementById(id);
+    $("fs-dbl").onclick = () => window.FS && window.FS.checkDoubles();
     const linkBox = $("fs-link");
     const drawLink = () => (linkBox.value = setupLink($("fs-incl").checked));
     drawLink(); $("fs-incl").onchange = drawLink;

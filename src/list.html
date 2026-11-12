@@ -286,7 +286,7 @@ html.sheet-open,html.sheet-open body{overflow:hidden}
       <button class="tab rec" id="tab-rec" data-view="rec">Recipes<small id="count-rec"></small></button>
       <button class="tab rec" id="tab-made" data-view="made">Made<small id="count-made"></small></button>
     </div>
-    <label class="trip" id="trip"><span>This fortnight I'm shopping at</span>
+    <label class="trip" id="trip"><span>Shopping at</span>
       <select id="trip-sel" aria-label="Where you're shopping this fortnight">
         <option value="both">Aldi &amp; Woolworths</option><option value="ww">Woolworths</option><option value="coles">Coles</option>
       </select></label>
@@ -1753,8 +1753,79 @@ function importPasted(text){
   reviewImport(items);
 }
 
+/* ---------- Check for double-ups: one line per item, with the total needed ----------
+   Exact matches (same name once size words and plurals are ignored) are found here;
+   with a Claude key, Claude also spots the same product written differently. */
+function combineLines(group,name){
+  // keep the line that's still to buy and already tagged to recipes
+  const keep=[...group].sort((a,b)=>(a.done-b.done)||(b.recipes.length-a.recipes.length))[0];
+  group.forEach(i=>{
+    if(i===keep)return;
+    keep.needs=keep.needs||{};
+    // a recipe is counted once (its amount, not twice); extras you added yourself add up
+    Object.entries(i.needs||{_own:i.qty||1}).forEach(([k,v])=>{if(k==="_own")keep.needs._own=(+keep.needs._own||0)+(+v||0);else keep.needs[k]=Math.max(+keep.needs[k]||0,+v||0);});
+    (i.recipes||[]).forEach(r=>{if(!keep.recipes.includes(r))keep.recipes.push(r)});
+    ["aldiPrice","wwPrice","colesPrice","wwAisle"].forEach(f=>{if(keep[f]==null&&i[f]!=null)keep[f]=i[f];});
+    if(!keep.note&&i.note)keep.note=i.note;
+    keep.done=keep.done&&i.done;
+    const k=state.items.indexOf(i); if(k>=0)state.items.splice(k,1);
+  });
+  if(name)keep.name=auName(name);
+  syncQty(keep); return keep;
+}
+async function checkDoubles(){
+  if(typeof closeSheet==="function")closeSheet();
+  openSheet(`<h2>Checking your list…</h2><p class="status">Looking for the same item on more than one line.</p>`);
+  const groups=[], used=new Set();
+  state.items.forEach(i=>{ // exact matches
+    if(used.has(i))return;
+    const same=state.items.filter(x=>x!==i&&!used.has(x)&&norm(x.name)===norm(i.name));
+    if(same.length){const g=[i,...same];g.forEach(x=>used.add(x));groups.push({items:g,name:i.name,why:"Same item"});}
+  });
+  let note="";
+  if(sample){ // the same product written differently, e.g. Garlic and Garlic cloves
+    const rest=state.items.filter(i=>!used.has(i)&&!i.done).slice(0,200);
+    try{
+      const res=await sample.json(`Here is a numbered grocery list. Find lines that are the SAME product a shopper would buy as one item, just written differently (e.g. "Garlic" and "Garlic cloves", "Tinned tomatoes" and "Diced tomatoes 400g", "Spring onions" and "Shallots"). Different varieties or products are NOT the same: red onion vs brown onion, milk vs long life milk, chicken breast vs chicken thigh, minced garlic jar vs fresh garlic. Only group when you're confident.
+Reply with only JSON: {"groups":[{"lines":[number,...],"name":"the clean Australian supermarket name to keep"}]}. Empty groups list if none.
+
+${rest.map((i,k)=>`${k}. ${i.name}${i.note?" ("+i.note+")":""}`).join("\n")}`,{modelTier:"quick"});
+      (res&&Array.isArray(res.groups)?res.groups:[]).forEach(g=>{
+        const its=[...new Set((g.lines||[]).map(n=>rest[+n]).filter(Boolean))].filter(i=>!used.has(i));
+        if(its.length>1){its.forEach(x=>used.add(x));groups.push({items:its,name:String(g.name||its[0].name),why:"Claude: same product"});}
+      });
+    }catch(e){note=`Claude couldn't check for differently worded double-ups (${errCopy(e&&e.code)}). Exact matches are below.`;}
+  }else note="Add your Claude key in Settings and this also finds the same item written differently, like Garlic and Garlic cloves.";
+  if(!groups.length){
+    openSheet(`<h2>No double-ups ✓</h2><p class="status">Every item is on the list once.${note?" "+esc(note):""}</p>
+      <div class="actions"><span class="sp"></span><button class="btn" type="button" id="dbl-ok">OK</button></div>`);
+    $("dbl-ok").onclick=closeSheet; return;
+  }
+  const preview=g=>{const fake=g.items.map(i=>({...i,needs:{...(i.needs||{_own:i.qty||1})},recipes:[...i.recipes]}));
+    const keep={...fake[0],needs:{...fake[0].needs},recipes:[...fake[0].recipes]};
+    fake.slice(1).forEach(i=>Object.entries(i.needs).forEach(([k,v])=>{if(k==="_own")keep.needs._own=(+keep.needs._own||0)+(+v||0);else keep.needs[k]=Math.max(+keep.needs[k]||0,+v||0);}));
+    syncQty(keep); return keep.qty;};
+  const where=i=>tripWW()?"":` · ${storeName(i.store)}`;
+  openSheet(`<h2>${groups.length} double-up${groups.length>1?"s":""} found</h2>
+    <p class="status">Each one becomes a single line with the total you need. A recipe is counted once; extras you added yourself are added together. Untick any that aren't really the same.</p>
+    ${note?`<p class="status">${esc(note)}</p>`:""}
+    <div>${groups.map((g,k)=>`<label class="rv"><input type="checkbox" data-g="${k}" checked>
+      <span class="txt"><span class="name">${preview(g)}× ${esc(g.name)}</span>
+      <span class="note">${g.items.map(i=>`${i.qty||1}× ${esc(i.name)}${i.note?" "+esc(i.note):""}${where(i)}`).join(" + ")} · ${esc(g.why)}</span></span></label>`).join("")}</div>
+    <div class="actions"><span class="sp"></span><button class="btn ghost" type="button" id="dbl-cancel">Cancel</button><button class="btn" type="button" id="dbl-go">Combine</button></div>`);
+  $("dbl-cancel").onclick=closeSheet;
+  $("dbl-go").onclick=()=>{
+    let n=0; scrim.querySelectorAll("[data-g]:checked").forEach(c=>{combineLines(groups[+c.dataset.g].items,groups[+c.dataset.g].name);n++;});
+    save(); render();
+    openSheet(`<h2>Done</h2><p class="status">Combined ${n} double-up${n===1?"":"s"}. Each is now one line with the total.</p>
+      <div class="actions"><span class="sp"></span><button class="btn" type="button" id="dbl-ok">OK</button></div>`);
+    $("dbl-ok").onclick=closeSheet;
+  };
+}
+
 // used by the standalone app's Settings (backup and restore)
 window.FS={
+  checkDoubles:()=>checkDoubles(),
   backup:()=>({app:"fortnight-shop",version:1,at:new Date().toISOString(),items:state.items,recipes:state.recipes,shops:state.shops,aisles:state.aisles}),
   restore(b){
     if(!b||!Array.isArray(b.items)||!Array.isArray(b.recipes))throw new Error("That file isn't a Fortnight Shop backup.");
