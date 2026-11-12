@@ -20,7 +20,7 @@ body{margin:0;font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif
 img{max-width:100%}
 [hidden]{display:none!important}
 </style>
-<script>window.APP_VERSION="2026.11.12-1129";</script>
+<script>window.APP_VERSION="2026.11.13-0632";</script>
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.97.0"></script>
 <script src="standalone.js"></script>
@@ -91,6 +91,7 @@ form.add input{flex:1;min-width:0;font:inherit;padding:11px 12px;border:1px soli
 .filebtn{position:relative;overflow:hidden;display:inline-flex;align-items:center;justify-content:center;flex:1}
 .filebtn input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:0}
 .filebtn:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+#nr-pstatus:empty{display:none}
 .photo-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%}
 section{margin-top:16px}
 section h2{font-family:var(--display);font-weight:500;font-size:.78rem;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);margin:0 0 6px;display:flex;justify-content:space-between;gap:8px}
@@ -731,7 +732,7 @@ function drawRecipeResults(){
     .filter(x=>!q||low(x.r.name).includes(q)||x.ingHit.length)
     .sort((a,b)=>a.r.name.localeCompare(b.r.name));
   const ul=$("rec-results");
-  if(!hits.length){ul.outerHTML=`<p class="empty" id="rec-results">${q?"No recipes match “"+esc(recipeQuery)+"”.":"No recipes yet. Add one below, or import one from a photo."}</p>`;return;}
+  if(!hits.length){ul.outerHTML=`<p class="empty" id="rec-results">${q?"No recipes match “"+esc(recipeQuery)+"”.":"No recipes yet. Add one below, from a photo, a link or by typing it in."}</p>`;return;}
   const row=({r,idx,ingHit})=>{
     const recent=madeRecently(r), made=recent.length>0;
     const onList=r.ingredients.filter(g=>state.items.some(i=>norm(i.name)===norm(g.name))).length;
@@ -1120,13 +1121,101 @@ function parseLine(line){
   const g={name:name.charAt(0).toUpperCase()+name.slice(1),qty,note,aisle:guessAisle(name),store:"aldi"};
   seedPrice(g); return g;
 }
+/* New recipe: fill the form from a photo, a link or pasted text */
+async function fillRecipe(src){
+  const st=$("nr-pstatus"); st.classList.remove("err");
+  st.textContent=src.image?"Reading the photo…":src.url?"Reading the page…":"Sorting…";
+  scrim.querySelectorAll("#nr-srcbody button,#nr-srcbody input").forEach(b=>b.disabled=true);
+  try{
+    const what=src.image?"The image is a photo or screenshot of a recipe (printed, handwritten, a recipe card or a web page)."
+      :`Below is ${src.url?"the text of the recipe page "+src.url:"a recipe the user pasted"}.`;
+    const r=await sample.json(`${what} Split it into its title, shopping ingredients and method. Reply with only JSON:
+{"title":string,"ingredients":[{"name":string,"qty":number,"note":string}],"method":string}
+For ingredients: clean capitalised Australian supermarket names (capsicum not bell pepper, coriander not cilantro, shallots for spring/green onions, mince not ground meat, prawns, plain flour, cornflour, thickened cream), qty = whole number of packs/items to buy (default 1), note = pack size if stated. Skip water, salt and pepper. Keep the method's steps and wording, one step per line. If there is no recipe in it, reply {"title":"","ingredients":[],"method":""}.${src.text?"\n\n---\n"+src.text:""}`,
+      src.image?{images:[src.image]}:{modelTier:"quick"});
+    if(!$("nr-name"))return; // sheet was closed
+    const ings=(r&&Array.isArray(r.ingredients)?r.ingredients:[]).filter(x=>x&&x.name)
+      .map(x=>`${(+x.qty||1)>1?Math.round(+x.qty)+" x ":""}${String(x.name).trim()}${x.note?" "+String(x.note).trim():""}`);
+    if(!ings.length&&!(r&&r.title))throw{code:"refused"};
+    if(r.title&&!$("nr-name").value.trim())$("nr-name").value=String(r.title);
+    if(ings.length)$("nr-ings").value=ings.join("\n");
+    const meth=[r.method?String(r.method).trim():"",src.url?"Source: "+src.url:""].filter(Boolean).join("\n\n");
+    if(meth)$("nr-method").value=meth;
+    $("nr-srcbody").hidden=true; scrim.querySelectorAll("[data-src]").forEach(b=>b.setAttribute("aria-pressed","false"));
+    st.textContent=`Filled in ${ings.length} ingredient${ings.length===1?"":"s"}. Check them, then Save recipe.`;
+  }catch(e){
+    if(!$("nr-name"))return;
+    st.classList.add("err"); st.textContent=errCopy(e&&e.code);
+    scrim.querySelectorAll("#nr-srcbody button,#nr-srcbody input").forEach(b=>b.disabled=false);
+  }
+}
+function recipeSources(){
+  const body=$("nr-srcbody"), st=$("nr-pstatus");
+  scrim.querySelectorAll("[data-src]").forEach(b=>b.onclick=()=>{
+    const on=b.getAttribute("aria-pressed")!=="true";
+    scrim.querySelectorAll("[data-src]").forEach(x=>x.setAttribute("aria-pressed",String(x===b&&on)));
+    st.textContent=""; st.classList.remove("err"); body.hidden=!on; if(!on)return;
+    const v=b.dataset.src;
+    if(v==="photo"){
+      body.innerHTML=`<div class="actions">
+          <label class="btn filebtn">Choose a photo<input type="file" id="nr-file" accept="${esc(photoAccept)}"></label>
+          <label class="btn ghost filebtn">Take a photo<input type="file" id="nr-cam" accept="image/*" capture="environment"></label></div>
+        <p class="status">A recipe card, a cookbook page or a screenshot of a recipe site. Buttons not opening anything? Copy the picture, then long-press the box below and tap Paste.</p>
+        <div id="nr-pastepic" class="pastebox" contenteditable="true" role="textbox" aria-label="Paste a picture here" inputmode="none"></div>`;
+      ["nr-file","nr-cam"].forEach(id=>$(id).onchange=e=>{const f=e.target.files&&e.target.files[0];if(f)fillRecipe({image:f});});
+      const pb=$("nr-pastepic");
+      const take=list=>{for(const it of list||[]){const f=it.getAsFile?it.getAsFile():it;if(f&&/^image\//.test(f.type)){fillRecipe({image:f});return true;}}return false;};
+      pb.addEventListener("paste",e=>{e.preventDefault();const dt=e.clipboardData;if(!(dt&&(take(dt.files)||take(dt.items)))){pb.textContent="";pb.dataset.msg="That wasn't a picture. Copy the image itself, then paste.";}});
+      pb.addEventListener("drop",e=>{e.preventDefault();take(e.dataTransfer&&e.dataTransfer.files);});
+      pb.addEventListener("dragover",e=>e.preventDefault());
+      pb.addEventListener("input",async()=>{const img=pb.querySelector("img");if(!img)return;
+        try{const bl=await (await fetch(img.src)).blob();pb.innerHTML="";fillRecipe({image:new File([bl],"pasted",{type:bl.type||"image/png"})});}
+        catch(e){pb.innerHTML="";pb.dataset.msg="Couldn't use that picture. Try Choose a photo.";}});
+    }else if(v==="link"){
+      const noLinks=!mcp||(matchMedia("(pointer:coarse)").matches&&!mcp.linksOnPhone);
+      body.innerHTML=`<div class="actions" style="flex-wrap:nowrap">
+          <input id="nr-url" type="url" inputmode="url" placeholder="Paste a recipe link (https://…)" autocomplete="off" style="font:inherit;flex:1;min-width:0;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg)">
+          <button class="btn" type="button" id="nr-urlgo">Read</button></div>
+        ${noLinks?`<p class="status">Opening links here needs the Claude desktop app. On a phone, screenshot the recipe and use Photo, or copy it into Paste text. The link is still saved with the recipe.</p>`:""}`;
+      const go=async()=>{
+        const url=$("nr-url").value.trim();
+        if(!/^https?:\/\/\S+\.\S+/.test(url)){st.classList.add("err");st.textContent="Enter a full link starting with https://";return;}
+        if(noLinks){ // can't open it here, so keep the link with the recipe
+          const m=$("nr-method"); if(!m.value.includes(url))m.value=(m.value.trim()?m.value.trim()+"\n\n":"")+"Source: "+url;
+          st.classList.remove("err"); st.textContent="Link saved in Method and notes.";return;}
+        st.classList.remove("err"); st.textContent="Opening the page…"; $("nr-urlgo").disabled=true;
+        try{
+          await mcp.callTool("host:claude_browser","navigate",{url});
+          const r=await mcp.callTool("host:claude_browser","get_page_text",{});
+          const text=typeof r.payload==="string"?r.payload:(r.content||[]).filter(c=>c.type==="text").map(c=>c.text).join("\n");
+          if(!text||text.trim().length<40)throw{code:"empty"};
+          await fillRecipe({text:text.slice(0,30000),url});
+        }catch(e){
+          if(!$("nr-name"))return;
+          st.classList.add("err"); $("nr-urlgo").disabled=false;
+          st.textContent=e&&(e.code==="server_not_connected"||e.code==="not_granted"||e.code==="unavailable")
+            ?"Links only open in the Claude desktop app. Screenshot the recipe and use Photo, or copy it into Paste text."
+            :e&&e.code&&e.code!=="empty"&&e.code!=="error"?errCopy(e.code):"Couldn't read that page. Screenshot the recipe and use Photo, or copy it into Paste text.";
+        }
+      };
+      $("nr-urlgo").onclick=go; $("nr-url").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();go();}};
+      $("nr-url").focus();
+    }else{
+      body.innerHTML=`<textarea id="nr-raw" placeholder="Chicken laksa&#10;Ingredients…&#10;Method…" aria-label="Paste the whole recipe" style="font:inherit;width:100%;min-height:110px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg);resize:vertical"></textarea>
+        <div class="actions">${navigator.clipboard&&navigator.clipboard.readText?`<button class="btn ghost" type="button" id="nr-clip">Paste</button>`:""}<span class="sp"></span><button class="btn" type="button" id="nr-sort">Sort it out</button></div>`;
+      if($("nr-clip"))$("nr-clip").onclick=async()=>{try{$("nr-raw").value=await navigator.clipboard.readText();}catch(e){$("nr-raw").focus();}};
+      $("nr-sort").onclick=()=>{const raw=$("nr-raw").value.trim();if(raw)fillRecipe({text:raw.slice(0,20000)});};
+      $("nr-raw").focus();
+    }
+  });
+}
 function newRecipe(pre){
   pre=pre||{};
   openSheet(`<h2>New recipe</h2>
-    ${sample?`<button class="btn ghost" type="button" id="nr-paste">Paste a whole recipe and let Claude sort it</button>
-    <div id="nr-pastebox" hidden class="field">Paste the recipe (title, ingredients and method)
-      <textarea id="nr-raw" placeholder="Chicken laksa&#10;Ingredients…&#10;Method…"></textarea>
-      <div class="actions"><span class="status" id="nr-pstatus"></span><span class="sp"></span><button class="btn" type="button" id="nr-sort">Sort it out</button></div></div>`:""}
+    ${sample?`<div class="field">Fill it in from
+      <div class="seg imp-tabs" id="nr-src">${[...(canPhoto?[["photo","Photo"]]:[]),["link","Link"],["text","Paste text"]].map(([v,l])=>`<button type="button" data-src="${v}" aria-pressed="false">${l}</button>`).join("")}</div></div>
+    <div id="nr-srcbody" hidden></div>
+    <p class="status" id="nr-pstatus" aria-live="polite"></p>`:""}
     <label class="field">Recipe name<input id="nr-name" value="${esc(pre.name||"")}" placeholder="e.g. Chicken laksa" autocomplete="off"></label>
     <label class="field">Ingredients, one per line<textarea id="nr-ings" placeholder="2 x Coconut milk 400ml&#10;Laksa paste&#10;Hokkien noodles 450g&#10;Lemongrass">${esc(pre.ings||"")}</textarea></label>
     <label class="field">Method and notes<textarea id="nr-method" placeholder="1. Fry the paste…&#10;2. Add stock and coconut milk…">${esc(pre.method||"")}</textarea></label>
@@ -1135,26 +1224,7 @@ function newRecipe(pre){
     <div class="actions"><span class="sp"></span><button class="btn ghost" type="button" id="nr-cancel">Cancel</button><button class="btn" type="button" id="nr-save">Save recipe</button></div>`);
   if(!pre.name)$("nr-name").focus();
   $("nr-cancel").onclick=closeSheet;
-  if(sample){
-    $("nr-paste").onclick=()=>{$("nr-pastebox").hidden=false;$("nr-paste").hidden=true;$("nr-raw").focus();};
-    $("nr-sort").onclick=async()=>{
-      const raw=$("nr-raw").value.trim(); if(!raw)return;
-      $("nr-sort").disabled=true;$("nr-pstatus").textContent="Sorting…";
-      try{
-        const r=await sample.json(`Split this recipe into its title, shopping ingredients and method. Reply with only JSON:
-{"title":string,"ingredients":[{"name":string,"qty":number,"note":string}],"method":string}
-For ingredients: clean capitalised Australian supermarket names (capsicum not bell pepper, coriander not cilantro, shallots for spring/green onions, mince not ground meat, prawns, plain flour, cornflour, thickened cream), qty = whole number of packs/items to buy (default 1), note = pack size if stated. Skip water, salt and pepper. Keep the method's steps and wording, one step per line.
-
-${raw.slice(0,20000)}`,{modelTier:"quick"});
-        if(r&&r.title&&!$("nr-name").value.trim())$("nr-name").value=String(r.title);
-        const ings=(r&&Array.isArray(r.ingredients)?r.ingredients:[]).filter(x=>x&&x.name)
-          .map(x=>`${(+x.qty||1)>1?Math.round(+x.qty)+" x ":""}${String(x.name).trim()}${x.note?" "+String(x.note).trim():""}`);
-        if(ings.length)$("nr-ings").value=ings.join("\n");
-        if(r&&r.method)$("nr-method").value=String(r.method);
-        $("nr-pastebox").hidden=true;
-      }catch(e){$("nr-pstatus").textContent=errCopy(e&&e.code);$("nr-sort").disabled=false;}
-    };
-  }
+  if(sample)recipeSources();
   $("nr-save").onclick=()=>{
     const err=$("nr-err"), name=$("nr-name").value.trim();
     if(!name){err.hidden=false;err.textContent="Give the recipe a name.";$("nr-name").focus();return;}
