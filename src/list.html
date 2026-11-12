@@ -165,7 +165,8 @@ html.sheet-open .ai-fab{display:none}
 .ingchip{display:inline-flex;align-items:center;gap:2px}
 .ing .x{font:inherit;border:0;background:transparent;color:var(--muted);cursor:pointer;padding:0 0 0 4px;font-size:1rem;line-height:1}
 .ing span.d .x{text-decoration:none}
-.seg.pc{flex:none;width:150px}
+.seg.pc{flex:none;width:210px;grid-template-columns:repeat(3,1fr)}
+.needs{display:block;font-size:.78rem;color:var(--muted)}
 .seg.pc button{padding:7px 4px;font-size:.85rem}
 .seg.pc button[aria-pressed="true"][data-v="have"]{background:var(--line);color:var(--fg);font-weight:700}
 .seg.pc button[aria-pressed="true"][data-v="add"]{background:var(--accent-soft);color:var(--accent);font-weight:700}
@@ -483,7 +484,10 @@ const SAME_AS={
   "cilantro":"coriander","courgette":"zucchini","arugula":"rocket",
   "chili":"chilli","chile":"chilli","red chili":"red chilli","red chile":"red chilli"
 };
-const norm=s=>{const k=low(auName(s)).replace(/[^a-z0-9]+/g," ").trim().replace(/(es|s)$/,"");return SAME_AS[k]||k;};
+// "Fresh coriander", "Coriander bunch" and "Coriander" are one item; size and packaging words don't make a new one
+const FILLER=/\b(fresh|large|small|medium|bunch(es)?|punnets?|packets?|packs?|cans?|tins?|jars?|bags?|of|cloves?|whole)\b/g;
+const norm=s=>{const b=low(auName(s)).replace(/[^a-z0-9]+/g," ");const t=b.replace(FILLER," ").replace(/\s+/g," ").trim()||b.trim();
+  const k=t.replace(/(es|s)$/,"");return SAME_AS[k]||k;};
 const findDup=(name,exceptId)=>state.items.find(i=>i.id!==exceptId&&norm(i.name)===norm(name));
 /* Quantity model: each list item keeps what each recipe needs (needs[recipe]) plus any extra
    you added yourself (needs._own). The amount to buy is the total of those, so adding the same
@@ -656,7 +660,8 @@ ${t.risky?`<span class="warn">${t.risky} Aldi item${t.risky>1?"s":""} may need W
           <span class="txt"><span class="name">${i.qty>1?`<span class="qty">${i.qty}×</span>`:""}${esc(i.name)}${i.note?` <span class="note">${esc(i.note)}</span>`:""}</span>
           ${availText(i)?`<span class="avail">${esc(availText(i))}</span>`:""}
           ${tripWW()&&i.store==="aldi"?`<span class="from-aldi">On the Aldi list</span>`:""}
-          ${i.recipes.length?`<span class="chips">${i.recipes.map(r=>`<span class="chip">${esc(r)}</span>`).join("")}</span>`:""}</span></label>
+          ${i.recipes.length?`<span class="chips">${i.recipes.map(r=>`<span class="chip">${esc(r)}</span>`).join("")}</span>`:""}
+          ${needsText(i)?`<span class="needs">Buy ${i.qty||1} in total: ${needsText(i)}</span>`:""}</span></label>
         <span class="price">${lineCost(i)!=null?money(lineCost(i)):isPending(i.id)?`<span class="estdot">est…</span>`:"–"}</span>
         ${byWW&&unset?`<button class="setaisle" data-setaisle="${i.id}" aria-label="Set Woolies aisle for ${esc(i.name)}">Aisle?</button>`:""}
         <button class="edit" data-edit="${i.id}" aria-label="Edit ${esc(i.name)}">Edit</button>
@@ -1286,24 +1291,27 @@ function pantryCheck(k){
   const rows=r.ingredients.map(g=>{const it=state.items.find(i=>norm(i.name)===norm(g.name)&&!i.done);
     const counted=!!(it&&it.needs&&it.needs[r.name]!=null);
     const after=it?Math.max(1,recipeSum(it)-(counted?+it.needs[r.name]:0)+(g.qty||1)+(+it.needs._own||0)):g.qty||1;
-    return{g,on:it,onList:!!it,counted,after,need:!counted};});
+    return{g,on:it,onList:!!it,counted,after,need:!counted,store:it?it.store:(g.store==="ww"?"ww":"aldi")};});
   const draw=()=>{
     const n=rows.filter(x=>x.need).length;
     openSheet(`<h2>Add ${esc(r.name)}</h2>
-      <p class="status">Check the cupboard first. Tap <strong>Have it</strong> to leave an ingredient off, or <strong>Add</strong> to put it on the list. Anything already on the list gets this recipe's amount added to it instead of a second line, and a recipe is never counted twice.</p>
+      <p class="status">Check the cupboard first. Tap <strong>Have it</strong> to leave an ingredient off, or <strong>Aldi</strong> or <strong>Woolies</strong> to put it on that list. Anything already on the list gets this recipe's amount added to it, so you get one line with the total instead of a second line.</p>
       <div>${rows.map((x,j)=>`<div class="rv"><span class="txt"><span class="name">${x.g.qty>1?`<span class="qty">${x.g.qty}×</span>`:""}${esc(x.g.name)}${x.g.note?` <span class="note">${esc(x.g.note)}</span>`:""}</span>
-        <span class="note">${storeName(ingStore(x.g))}${ingPrice(x.g)!=null?" · ~"+money(ingPrice(x.g)*(x.g.qty||1)):""}${x.onList?(x.counted?` · on list, ${x.on.qty||1}× already includes this recipe`:` · on list as ${x.on.qty||1}×${x.need&&x.after!==(x.on.qty||1)?` → <strong>${x.after}×</strong>`:""}`):""}</span></span>
-        <div class="seg pc"><button type="button" data-j="${j}" data-v="have" aria-pressed="${!x.need}">Have it</button><button type="button" data-j="${j}" data-v="add" aria-pressed="${x.need}">Add</button></div></div>`).join("")}</div>
-      <div class="actions"><button class="link" id="pc-all">Add all</button><button class="link" id="pc-none">Have all</button><span class="sp"></span>
+        <span class="note">${x.need?storeName(x.store):"Not buying"}${x.need&&(x.store==="ww"?x.g.wwPrice:x.g.aldiPrice)!=null?" · ~"+money((x.store==="ww"?x.g.wwPrice:x.g.aldiPrice)*(x.g.qty||1)):""}${x.onList?(x.counted?` · on list, ${x.on.qty||1}× already includes this recipe`:` · on list as ${x.on.qty||1}×${x.need&&x.after!==(x.on.qty||1)?` → <strong>${x.after}×</strong>`:""}`):""}</span></span>
+        <div class="seg pc"><button type="button" data-j="${j}" data-v="have" aria-pressed="${!x.need}">Have it</button><button type="button" data-j="${j}" data-v="aldi" aria-pressed="${x.need&&x.store==="aldi"}">Aldi</button><button type="button" data-j="${j}" data-v="ww" aria-pressed="${x.need&&x.store==="ww"}">Woolies</button></div></div>`).join("")}</div>
+      <div class="actions"><button class="link" id="pc-aldi">All Aldi</button><button class="link" id="pc-ww">All Woolies</button><button class="link" id="pc-none">Have all</button></div>
+      <div class="actions"><span class="sp"></span>
         <button class="btn ghost" id="pc-cancel">Cancel</button><button class="btn" id="pc-ok" ${n?"":"disabled"}>Add ${n} item${n===1?"":"s"}</button></div>`);
-    scrim.querySelectorAll(".pc button").forEach(b=>b.onclick=()=>{rows[b.dataset.j].need=b.dataset.v==="add";draw();});
-    $("pc-all").onclick=()=>{rows.forEach(x=>x.need=true);draw();};
+    scrim.querySelectorAll(".pc button").forEach(b=>b.onclick=()=>{const x=rows[b.dataset.j],v=b.dataset.v;x.need=v!=="have";if(x.need)x.store=v;draw();});
+    $("pc-aldi").onclick=()=>{rows.forEach(x=>{x.need=true;x.store="aldi";});draw();};
+    $("pc-ww").onclick=()=>{rows.forEach(x=>{x.need=true;x.store="ww";});draw();};
     $("pc-none").onclick=()=>{rows.forEach(x=>x.need=false);draw();};
     $("pc-cancel").onclick=closeSheet;
     $("pc-ok").onclick=()=>{
-      rows.filter(x=>x.need).forEach(({g})=>{
+      rows.filter(x=>x.need).forEach(({g,store})=>{
+        g.store=store; // remembered for next time this recipe is added
         const it=findDup(g.name);
-        if(it){it.done=false;setNeed(it,r.name,g.qty||1);if(it.aldiPrice==null&&g.aldiPrice!=null)it.aldiPrice=g.aldiPrice;if(it.wwPrice==null&&g.wwPrice!=null)it.wwPrice=g.wwPrice;}
+        if(it){it.done=false;it.store=store;setNeed(it,r.name,g.qty||1);if(it.aldiPrice==null&&g.aldiPrice!=null)it.aldiPrice=g.aldiPrice;if(it.wwPrice==null&&g.wwPrice!=null)it.wwPrice=g.wwPrice;}
         else{const x={id:uid(),name:g.name,note:g.note||"",qty:g.qty||1,aisle:g.aisle||guessAisle(g.name),store:g.store||"aldi",aldiPrice:g.aldiPrice??null,wwPrice:g.wwPrice??null,avail:g.avail||"yes",recipes:[r.name],needs:{[r.name]:g.qty||1,_own:0},done:false};syncQty(x);state.items.push(x);}
       });
       save();closeSheet();render();

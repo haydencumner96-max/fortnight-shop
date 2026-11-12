@@ -1,7 +1,7 @@
 /* Fortnight Shop offline support.
    The app's own files: try the network first (so updates arrive), fall back to the saved copy offline.
    Libraries and fonts: saved copy first. Supabase and Claude requests are never cached. */
-const VERSION = "2026.11.13-0705";
+const VERSION = "2026.11.13-0713";
 const CACHE = "fs-" + VERSION;
 const SHELL = [
   "./", "./index.html", "./config.js", "./standalone.js", "./manifest.webmanifest",
