@@ -187,6 +187,10 @@ li.done .price{color:var(--muted)}
 #pf-ww.on{border-color:var(--ww);background:var(--ww-soft)}
 #pf-ww.on em{color:var(--ww)}
 .est-hint{font-size:.78rem;color:var(--muted)}
+.estdot{color:var(--muted);font-size:.8rem;animation:estp 1.2s infinite ease-in-out}
+@keyframes estp{50%{opacity:.4}}
+@media (prefers-reduced-motion:reduce){.estdot{animation:none}}
+li .setaisle+.edit{padding-left:6px}
 .imp-tabs{display:grid;grid-template-columns:repeat(3,1fr)}
 .imp-tabs button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent);font-weight:700}
 .sheet textarea{font:inherit;width:100%;min-height:140px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg);resize:vertical}
@@ -556,7 +560,7 @@ state.items.forEach(i=>{
   state.recipes.forEach(r=>{const o=[];r.ingredients.forEach(g=>{const d=o.find(x=>norm(x.name)===norm(g.name));if(d)d.qty=(d.qty||1)+(g.qty||1);else o.push(g);});r.ingredients=o;});
 })();
 // every change is cached on this device straight away, then sent to the shared list a moment later
-const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){} if(typeof queueSync==="function")queueSync();};
+const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){} if(typeof queueSync==="function")queueSync(); try{queueAutoEst();}catch(e){}};
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const storeName=s=>s==="aldi"?"Aldi":"Woolworths";
@@ -651,9 +655,9 @@ ${t.risky?`<span class="warn">${t.risky} Aldi item${t.risky>1?"s":""} may need W
           ${availText(i)?`<span class="avail">${esc(availText(i))}</span>`:""}
           ${tripWW()&&i.store==="aldi"?`<span class="from-aldi">On the Aldi list</span>`:""}
           ${i.recipes.length?`<span class="chips">${i.recipes.map(r=>`<span class="chip">${esc(r)}</span>`).join("")}</span>`:""}</span></label>
-        <span class="price">${lineCost(i)!=null?money(lineCost(i)):"–"}</span>
-        ${byWW&&unset?`<button class="setaisle" data-setaisle="${i.id}" aria-label="Set Woolies aisle for ${esc(i.name)}">Aisle?</button>`
-          :`<button class="edit" data-edit="${i.id}" aria-label="Edit ${esc(i.name)}">Edit</button>`}
+        <span class="price">${lineCost(i)!=null?money(lineCost(i)):isPending(i.id)?`<span class="estdot">est…</span>`:"–"}</span>
+        ${byWW&&unset?`<button class="setaisle" data-setaisle="${i.id}" aria-label="Set Woolies aisle for ${esc(i.name)}">Aisle?</button>`:""}
+        <button class="edit" data-edit="${i.id}" aria-label="Edit ${esc(i.name)}">Edit</button>
       </li>`).join("")+`</ul></section>`;
   });
   if(!html)html=`<p class="empty">${mine.length?"Everything's ticked off at "+storeName(v)+".":"Nothing on the "+storeName(v)+" list. Add something above."}</p>`;
@@ -998,14 +1002,27 @@ function openEditor(id,draft,pre){
   $("e-addrec").onclick=addRec;
   $("e-newrec").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();addRec();}};
   $("e-avail").value=shown.avail||"yes";
-  if(sample){$("e-est").hidden=false;$("e-est").onclick=async()=>{
-    const n=$("e-name").value.trim(); if(!n)return;
-    $("e-est").disabled=true;$("e-esthint").textContent="Estimating…";
+  let estFor="", estSeq=0;
+  const runEst=async(auto)=>{
+    const n=$("e-name").value.trim(); if(!n||!sample)return;
+    const key=n.toLowerCase()+"|"+$("e-note").value.trim().toLowerCase();
+    if(auto&&key===estFor)return; estFor=key; const my=++estSeq;
+    $("e-est").disabled=true;$("e-esthint").textContent="Estimating prices…";
     try{const [r]=await askPrices([{name:n,note:$("e-note").value,store}]);
-      if(r){$("e-aldi").value=r.aldiPrice??"";$("e-ww").value=r.wwPrice??"";$("e-avail").value=r.avail||"yes";$("e-esthint").textContent="Woolies is estimated for a mid-range to premium brand at Charters Towers. The cost uses the price for the store it's listed under.";}
-    }catch(e){$("e-esthint").textContent=errCopy(e&&e.code);}
-    $("e-est").disabled=false;
-  };}
+      if(my!==estSeq||!$("e-aldi"))return;
+      if(r){$("e-aldi").value=r.aldiPrice??"";$("e-ww").value=r.wwPrice??"";$("e-avail").value=r.avail||"yes";$("e-esthint").textContent="Estimated: Woolies for a mid-range to premium brand at Charters Towers. Edit to match the shelf.";}
+    }catch(e){if($("e-esthint"))$("e-esthint").textContent=errCopy(e&&e.code);}
+    if($("e-est"))$("e-est").disabled=false;
+  };
+  if(sample){$("e-est").hidden=false;$("e-est").textContent="Re-estimate";$("e-est").onclick=()=>runEst(false);
+    // estimate automatically for a new item, or one with no prices yet, once there's a name
+    const wantAuto=()=>isNew||($("e-aldi").value===""&&$("e-ww").value==="");
+    const priced=new Set(isNew?[]:[(shown.name||"").toLowerCase()+"|"+(shown.note||"").trim().toLowerCase()]);
+    const maybe=()=>{const k=$("e-name").value.trim().toLowerCase()+"|"+$("e-note").value.trim().toLowerCase();
+      if(wantAuto()&&!priced.has(k)&&!(isNew&&k===estFor))runEst(true);};
+    $("e-name").addEventListener("change",maybe); $("e-note").addEventListener("change",maybe);
+    if((isNew&&shown.name&&shown.aldiPrice==null&&shown.wwPrice==null)||(!isNew&&shown.aldiPrice==null&&shown.wwPrice==null))runEst(true);
+  }
   const q=$("e-qty");
   $("e-minus").onclick=()=>q.value=Math.max(1,(+q.value||1)-1);
   $("e-plus").onclick=()=>q.value=(+q.value||0)+1;
@@ -1202,6 +1219,24 @@ Use the size in the note when given. Items:
 ${JSON.stringify(list.map(x=>({name:x.name,note:x.note||"",store:x.store==="ww"?"Woolworths":"Aldi"})))}`,{modelTier:"quick"});
   return (Array.isArray(res)?res:[]).map(r=>({aldiPrice:numOrNull(r.aldi),wwPrice:numOrNull(r.ww),avail:["yes","maybe","rarely"].includes(r.avail)?r.avail:"yes"}));
 }
+function isPending(id){try{return estPending.has(id);}catch(e){return false;}}
+// any item saved without a price (typed, imported, from a recipe or the assistant) gets estimated in the background
+const estPending=new Set(), estTried=new Set(); let estTimer=null;
+function queueAutoEst(){
+  if(!sample)return; clearTimeout(estTimer);
+  estTimer=setTimeout(async()=>{
+    const list=state.items.filter(i=>priceOf(i)==null&&!estTried.has(i.id)&&!estPending.has(i.id)).slice(0,25);
+    if(!list.length)return;
+    list.forEach(i=>{estPending.add(i.id);estTried.add(i.id);}); render();
+    try{const res=await askPrices(list);
+      list.forEach((it,k)=>{const r=res[k];if(!r)return;
+        if(it.aldiPrice==null&&r.aldiPrice!=null)it.aldiPrice=r.aldiPrice;
+        if(it.wwPrice==null&&r.wwPrice!=null)it.wwPrice=r.wwPrice;
+        if(!it.avail)it.avail=r.avail;});
+    }catch(e){}
+    list.forEach(i=>estPending.delete(i.id)); save(); render();
+  },600);
+}
 async function estimateItems(list){
   if(!sample||!list.length)return;
   const btn=$("est-missing"); if(btn){btn.disabled=true;btn.textContent="Estimating…";}
@@ -1222,7 +1257,7 @@ let sample=null, busy=false, ctl=null, canPhoto=false, mcp=null, photoAccept="im
     const lim=await sample.limits().catch(()=>null);
     if(lim&&lim.images){canPhoto=true;photoAccept=lim.images.mediaTypes.join(",");}
     $("photo-wrap").hidden=false;
-    render();
+    render(); queueAutoEst();
   }catch(e){}
 })();
 (async()=>{try{mcp=await claude.use("mcp");}catch(e){}})();
@@ -1678,6 +1713,7 @@ function applySnap(col,snap){
   if(col==="items")arr.sort((a,b)=>(a.t||0)-(b.t||0));
   arr.forEach(o=>{if(col==="items"){o.recipes=o.recipes||[];if(!o.needs){o.needs={_own:o.qty||1};}toTwoPrices(o);}else if(col==="recipes"){o.ingredients=o.ingredients||[];o.notes=o.notes||"";o.ingredients.forEach(toTwoPrices);}else if(col==="shops"){o.recipes=o.recipes||[];}});
   if(col!=="shops"&&shared&&!readOnly)queueSync(); // writes back any items converted to two prices
+  if(col==="items"&&!readOnly)queueAutoEst(); // items added on another phone get priced too
   if(col==="shops"&&!shopsSeen){shopsSeen=true;
     // a shared list from before the Made tab: set up the current shop once everything has loaded
     if(!arr.length&&!readOnly)setTimeout(()=>{if(!curShop()){seedShop();save();render();}},2500);}
