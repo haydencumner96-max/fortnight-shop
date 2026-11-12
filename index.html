@@ -20,7 +20,7 @@ body{margin:0;font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif
 img{max-width:100%}
 [hidden]{display:none!important}
 </style>
-<script>window.APP_VERSION="2026.11.13-0713";</script>
+<script>window.APP_VERSION="2026.11.13-0716";</script>
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.97.0"></script>
 <script src="standalone.js"></script>
@@ -192,11 +192,13 @@ html.sheet-open .ai-fab{display:none}
 .ing .x{font:inherit;border:0;background:transparent;color:var(--muted);cursor:pointer;padding:0 0 0 4px;font-size:1rem;line-height:1}
 .ing span.d .x{text-decoration:none}
 .seg.pc{flex:none;width:210px;grid-template-columns:repeat(3,1fr)}
+.seg.pc.two{width:150px;grid-template-columns:1fr 1fr}
 .needs{display:block;font-size:.78rem;color:var(--muted)}
 .seg.pc button{padding:7px 4px;font-size:.85rem}
 .seg.pc button[aria-pressed="true"][data-v="have"]{background:var(--line);color:var(--fg);font-weight:700}
 .seg.pc button[aria-pressed="true"][data-v="add"]{background:var(--accent-soft);color:var(--accent);font-weight:700}
-.trip{display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,1fr);align-items:center;gap:6px;font-size:.8rem;color:var(--muted)}
+.trip{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:8px;font-size:.8rem;color:var(--muted)}
+.trip select{font:inherit;font-size:.9rem;font-weight:700;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px;min-height:40px;width:100%}
 .trip button{font:inherit;font-size:.85rem;white-space:nowrap;border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:999px;padding:7px 6px;cursor:pointer;min-height:38px}
 .trip button[aria-pressed="true"][data-trip="both"]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:700}
 .trip button[aria-pressed="true"][data-trip="ww"]{background:var(--ww-soft);border-color:var(--ww);color:var(--ww);font-weight:700}
@@ -310,11 +312,10 @@ html.sheet-open,html.sheet-open body{overflow:hidden}
       <button class="tab rec" id="tab-rec" data-view="rec">Recipes<small id="count-rec"></small></button>
       <button class="tab rec" id="tab-made" data-view="made">Made<small id="count-made"></small></button>
     </div>
-    <div class="trip" id="trip" role="group" aria-label="Shopping at">
-      <span>Shopping at</span>
-      <button type="button" data-trip="both">Aldi + Woolies</button>
-      <button type="button" data-trip="ww">Woolies only</button>
-    </div>
+    <label class="trip" id="trip"><span>This fortnight I'm shopping at</span>
+      <select id="trip-sel" aria-label="Where you're shopping this fortnight">
+        <option value="both">Aldi &amp; Woolworths</option><option value="ww">Woolworths</option><option value="coles">Coles</option>
+      </select></label>
     <div class="progress" id="prog-wrap"><i id="prog"></i></div>
     <div class="totals" id="totals"></div>
   </div>
@@ -465,9 +466,13 @@ function seedPrice(x){
 /* Shopping trip: "both" = Aldi trip (Aldi items at Aldi, Woolies items at Woolies);
    "ww" = Woolies-only trip (everything from both lists bought and priced at Woolies).
    Items keep their own store, so switching back restores the two lists. */
-const tripWW=()=>state&&state.trip==="ww";
+/* "coles" works like Woolies only: one list, everything bought and priced at Coles */
+const tripWW=()=>state&&(state.trip==="ww"||state.trip==="coles"); // one-store trip
+const isColes=()=>state&&state.trip==="coles";
+const oneName=()=>isColes()?"Coles":"Woolworths";
 const effStore=x=>tripWW()?"ww":x.store;
-const priceOf=x=>x?(effStore(x)==="ww"?x.wwPrice:x.aldiPrice)??null:null;
+// Coles prices fall back to the Woolies price until Claude has estimated one
+const priceOf=x=>x?(isColes()?(x.colesPrice??x.wwPrice):effStore(x)==="ww"?x.wwPrice:x.aldiPrice)??null:null;
 const otherPrice=x=>x?(x.store==="ww"?x.aldiPrice:x.wwPrice)??null:null;
 state.items.forEach(toTwoPrices);
 state.items.forEach(seedPrice);
@@ -543,6 +548,7 @@ function mergeInto(ex,x){
   syncQty(ex);
   if(ex.aldiPrice==null&&x.aldiPrice!=null)ex.aldiPrice=x.aldiPrice;
   if(ex.wwPrice==null&&x.wwPrice!=null)ex.wwPrice=x.wwPrice;
+  if(ex.colesPrice==null&&x.colesPrice!=null)ex.colesPrice=x.colesPrice;
   if((!ex.avail||ex.avail==="yes")&&x.avail)ex.avail=x.avail;
   if(!ex.note&&x.note)ex.note=x.note;
 }
@@ -562,7 +568,7 @@ state.recipes.forEach(r=>{
 function rememberIngredient(recName,it){
   const r=state.recipes.find(x=>x.name===recName); if(!r)return;
   const q=it.needs&&it.needs[recName]!=null?it.needs[recName]:(it.qty||1);
-  const ing={name:it.name,qty:q,note:it.note||"",aisle:it.aisle,store:it.store,aldiPrice:it.aldiPrice??null,wwPrice:it.wwPrice??null,avail:it.avail||"yes"};
+  const ing={name:it.name,qty:q,note:it.note||"",aisle:it.aisle,store:it.store,aldiPrice:it.aldiPrice??null,wwPrice:it.wwPrice??null,colesPrice:it.colesPrice??null,avail:it.avail||"yes"};
   if(it.wwAisle)ing.wwAisle=it.wwAisle;
   const k=r.ingredients.findIndex(x=>norm(x.name)===norm(it.name));
   if(k<0)r.ingredients.push(ing); else r.ingredients[k]={...r.ingredients[k],...ing,name:r.ingredients[k].name};
@@ -633,9 +639,10 @@ function render(){
   $("app").classList.toggle("ww-mode",v==="ww");
   $("tab-aldi").hidden=tripWW();
   $("app").classList.toggle("trip-ww",tripWW());
-  document.querySelectorAll("#trip [data-trip]").forEach(b=>b.setAttribute("aria-pressed",(state.trip||"both")===b.dataset.trip));
+  $("trip-sel").value=state.trip||"both";
+  $("tab-ww").querySelector(".long").textContent=oneName(); $("tab-ww").querySelector(".short").textContent=isColes()?"Coles":"Woolies";
   $("trip").hidden=!(v==="aldi"||v==="ww");
-  $("subhead").textContent=tripWW()?"Next shop · everything at Woolworths":"Next shop · Aldi first, Woolworths for the rest";
+  $("subhead").textContent=tripWW()?"Next shop · everything at "+oneName():"Next shop · Aldi first, Woolworths for the rest";
   ["aldi","ww"].forEach(k=>{
     const its=state.items.filter(i=>effStore(i)===k), left=its.filter(i=>!i.done).length;
     $("count-"+k).textContent=its.length?(left?left+" to get":"all done ✓"):"empty";
@@ -648,9 +655,9 @@ function render(){
   const shop=v==="aldi"||v==="ww";
   $("shop-tools").hidden=!shop; $("prog-wrap").hidden=v==="rec";
   const t=totals();
-  const diff=t.wwOnly-t.split;
+  const diff=(isColes()?t.total:t.wwOnly)-t.split;
   $("totals").innerHTML=tripWW()
-    ?`<span>Est. shop <strong>${money(t.total)}</strong></span><span>all at Woolies</span>
+    ?`<span>Est. shop <strong>${money(t.total)}</strong></span><span>all at ${isColes()?"Coles":"Woolies"}</span>
       ${Math.abs(diff)>=0.01?`<span class="warn">${money(Math.abs(diff))} ${diff>0?"more":"less"} than an Aldi trip</span>`:""}`
     :`<span>Est. shop <strong>${money(t.total)}</strong></span>
     <span>Aldi ${money(t.aldi)}</span><span>Woolies ${money(t.ww)}</span>
@@ -669,7 +676,7 @@ ${t.risky?`<span class="warn">${t.risky} Aldi item${t.risky>1?"s":""} may need W
   $("add-input").placeholder=tripWW()?"Add an item…":"Add to "+storeName(v)+"…";
   let html="";
   // Woolies list: grouped by the Charters Towers aisle in walking order, then anything not set yet by category
-  const byWW=v==="ww";
+  const byWW=v==="ww"&&!isColes(); // the Charters Towers Woolies aisle order doesn't apply at Coles
   const groups=byWW
     ?[...WW_AISLES.map(a=>({label:a,match:i=>wwAisle(i)===a})),
       ...AISLES.map(a=>({label:a+" · aisle not set",unset:true,match:i=>!WW_AISLES.includes(wwAisle(i))&&(AISLES.includes(i.aisle)?i.aisle:"Other")===a}))]
@@ -685,7 +692,7 @@ ${t.risky?`<span class="warn">${t.risky} Aldi item${t.risky>1?"s":""} may need W
         <label><input type="checkbox" id="c-${i.id}" data-id="${i.id}" ${i.done?"checked":""}>
           <span class="txt"><span class="name">${i.qty>1?`<span class="qty">${i.qty}×</span>`:""}${esc(i.name)}${i.note?` <span class="note">${esc(i.note)}</span>`:""}</span>
           ${availText(i)?`<span class="avail">${esc(availText(i))}</span>`:""}
-          ${tripWW()&&i.store==="aldi"?`<span class="from-aldi">On the Aldi list</span>`:""}
+          ${tripWW()&&!isColes()&&i.store==="aldi"?`<span class="from-aldi">On the Aldi list</span>`:""}
           ${i.recipes.length?`<span class="chips">${i.recipes.map(r=>`<span class="chip">${esc(r)}</span>`).join("")}</span>`:""}
           ${needsText(i)?`<span class="needs">Buy ${i.qty||1} in total: ${needsText(i)}</span>`:""}</span></label>
         <span class="price">${lineCost(i)!=null?money(lineCost(i)):isPending(i.id)?`<span class="estdot">est…</span>`:"–"}</span>
@@ -701,7 +708,7 @@ ${t.risky?`<span class="warn">${t.risky} Aldi item${t.risky>1?"s":""} may need W
 let recipeQuery="";
 // each ingredient priced at the store it's listed under (the list's store when it's on the list)
 const ingStore=g=>{if(tripWW())return"ww";const it=state.items.find(i=>norm(i.name)===norm(g.name));return it?it.store:(g.store||"aldi");};
-const ingPrice=g=>{const st=ingStore(g);return(st==="ww"?g.wwPrice:g.aldiPrice)??null;};
+const ingPrice=g=>{if(isColes())return g.colesPrice??g.wwPrice??null;const st=ingStore(g);return(st==="ww"?g.wwPrice:g.aldiPrice)??null;};
 const recipeCost=r=>r.ingredients.reduce((a,g)=>a+(ingPrice(g)||0)*(g.qty||1),0);
 function renderRecipes(){
   $("list").innerHTML=`<section class="rsearch">
@@ -914,10 +921,10 @@ $("list").addEventListener("click",e=>{
   if(ed)openEditor(ed);
   if(e.target.dataset.setaisle)pickAisle(e.target.dataset.setaisle);
 });
-document.querySelectorAll("#trip [data-trip]").forEach(b=>b.onclick=()=>{
-  state.trip=b.dataset.trip; if(state.trip==="ww"&&state.view==="aldi")state.view="ww";
+$("trip-sel").onchange=e=>{const b={dataset:{trip:e.target.value}};
+  state.trip=b.dataset.trip; if(state.trip!=="both"&&state.view==="aldi")state.view="ww";
   try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){} render();
-});
+};
 document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{state.view=b.dataset.view; save(); render();});
 $("hide-done").onchange=e=>{state.hide=e.target.checked; save(); render();};
 
@@ -996,6 +1003,7 @@ function openEditor(id,draft,pre){
       <div class="grid2 prices">
         <label class="pfield" id="pf-aldi"><span>Aldi <em>used</em></span><input id="e-aldi" type="number" step="0.01" min="0" inputmode="decimal" value="${shown.aldiPrice??""}" placeholder="$ unknown"></label>
         <label class="pfield" id="pf-ww"><span>Woolies, mid–premium <em>used</em></span><input id="e-ww" type="number" step="0.01" min="0" inputmode="decimal" value="${shown.wwPrice??""}" placeholder="$ unknown"></label>
+        ${isColes()?`<label class="pfield" id="pf-coles"><span>Coles, mid–premium <em>used</em></span><input id="e-coles" type="number" step="0.01" min="0" inputmode="decimal" value="${shown.colesPrice??""}" placeholder="$ unknown"></label>`:""}
       </div>
       <div class="grid2">
         <select id="e-avail" aria-label="Availability at Aldi"><option value="yes">Aldi usually has it</option><option value="maybe">Aldi sometimes has it</option><option value="rarely">Aldi rarely has it</option></select>
@@ -1047,7 +1055,7 @@ function openEditor(id,draft,pre){
     $("e-est").disabled=true;$("e-esthint").textContent="Estimating prices…";
     try{const [r]=await askPrices([{name:n,note:$("e-note").value,store}]);
       if(my!==estSeq||!$("e-aldi"))return;
-      if(r){$("e-aldi").value=r.aldiPrice??"";$("e-ww").value=r.wwPrice??"";$("e-avail").value=r.avail||"yes";$("e-esthint").textContent="Estimated: Woolies for a mid-range to premium brand at Charters Towers. Edit to match the shelf.";}
+      if(r){$("e-aldi").value=r.aldiPrice??"";$("e-ww").value=r.wwPrice??"";if($("e-coles"))$("e-coles").value=r.colesPrice??"";$("e-avail").value=r.avail||"yes";$("e-esthint").textContent="Estimated: Woolies for a mid-range to premium brand at Charters Towers. Edit to match the shelf.";}
     }catch(e){if($("e-esthint"))$("e-esthint").textContent=errCopy(e&&e.code);}
     if($("e-est"))$("e-est").disabled=false;
   };
@@ -1080,6 +1088,7 @@ function openEditor(id,draft,pre){
     const wa=$("e-wwaisle").value; setAisle(n,wa);
     const vals={name:n,qty:typed,note:$("e-note").value.trim(),store,aisle:$("e-aisle").value,wwAisle:wa||undefined,recipes:[...picked].filter(Boolean),
       aldiPrice:$("e-aldi").value===""?null:Math.max(0,+$("e-aldi").value),wwPrice:$("e-ww").value===""?null:Math.max(0,+$("e-ww").value),avail:$("e-avail").value};
+    if($("e-coles"))vals.colesPrice=$("e-coles").value===""?null:Math.max(0,+$("e-coles").value); else if(it&&it.colesPrice!=null)vals.colesPrice=it.colesPrice;
     const dup=findDup(n,isNew?null:it.id);
     if(dup){confirmMerge(dup,vals,()=>{
         vals.recipes=vals.recipes.map(ensureRecipe);
@@ -1312,6 +1321,7 @@ function confirmMerge(dup,vals,onMerge,onBack){
 }
 
 /* ---------- pantry check before adding a recipe ---------- */
+const pcPrice=x=>isColes()?(x.g.colesPrice??x.g.wwPrice??null):tripWW()||x.store==="ww"?x.g.wwPrice??null:x.g.aldiPrice??null;
 function pantryCheck(k){
   const r=state.recipes[k]; if(!r)return;
   const rows=r.ingredients.map(g=>{const it=state.items.find(i=>norm(i.name)===norm(g.name)&&!i.done);
@@ -1321,16 +1331,18 @@ function pantryCheck(k){
   const draw=()=>{
     const n=rows.filter(x=>x.need).length;
     openSheet(`<h2>Add ${esc(r.name)}</h2>
-      <p class="status">Check the cupboard first. Tap <strong>Have it</strong> to leave an ingredient off, or <strong>Aldi</strong> or <strong>Woolies</strong> to put it on that list. Anything already on the list gets this recipe's amount added to it, so you get one line with the total instead of a second line.</p>
+      <p class="status">Check the cupboard first. Tap <strong>Have it</strong> to leave an ingredient off, or ${tripWW()?`<strong>Add</strong> to put it on the ${oneName()} list`:`<strong>Aldi</strong> or <strong>Woolies</strong> to put it on that list`}. Anything already on the list gets this recipe's amount added to it, so you get one line with the total instead of a second line.</p>
       <div>${rows.map((x,j)=>`<div class="rv"><span class="txt"><span class="name">${x.g.qty>1?`<span class="qty">${x.g.qty}×</span>`:""}${esc(x.g.name)}${x.g.note?` <span class="note">${esc(x.g.note)}</span>`:""}</span>
-        <span class="note">${x.need?storeName(x.store):"Not buying"}${x.need&&(x.store==="ww"?x.g.wwPrice:x.g.aldiPrice)!=null?" · ~"+money((x.store==="ww"?x.g.wwPrice:x.g.aldiPrice)*(x.g.qty||1)):""}${x.onList?(x.counted?` · on list, ${x.on.qty||1}× already includes this recipe`:` · on list as ${x.on.qty||1}×${x.need&&x.after!==(x.on.qty||1)?` → <strong>${x.after}×</strong>`:""}`):""}</span></span>
-        <div class="seg pc"><button type="button" data-j="${j}" data-v="have" aria-pressed="${!x.need}">Have it</button><button type="button" data-j="${j}" data-v="aldi" aria-pressed="${x.need&&x.store==="aldi"}">Aldi</button><button type="button" data-j="${j}" data-v="ww" aria-pressed="${x.need&&x.store==="ww"}">Woolies</button></div></div>`).join("")}</div>
-      <div class="actions"><button class="link" id="pc-aldi">All Aldi</button><button class="link" id="pc-ww">All Woolies</button><button class="link" id="pc-none">Have all</button></div>
+        <span class="note">${x.need?(tripWW()?oneName():storeName(x.store)):"Not buying"}${x.need&&pcPrice(x)!=null?" · ~"+money(pcPrice(x)*(x.g.qty||1)):""}${x.onList?(x.counted?` · on list, ${x.on.qty||1}× already includes this recipe`:` · on list as ${x.on.qty||1}×${x.need&&x.after!==(x.on.qty||1)?` → <strong>${x.after}×</strong>`:""}`):""}</span></span>
+        ${tripWW()?`<div class="seg pc two"><button type="button" data-j="${j}" data-v="have" aria-pressed="${!x.need}">Have it</button><button type="button" data-j="${j}" data-v="add" aria-pressed="${x.need}">Add</button></div>`
+        :`<div class="seg pc"><button type="button" data-j="${j}" data-v="have" aria-pressed="${!x.need}">Have it</button><button type="button" data-j="${j}" data-v="aldi" aria-pressed="${x.need&&x.store==="aldi"}">Aldi</button><button type="button" data-j="${j}" data-v="ww" aria-pressed="${x.need&&x.store==="ww"}">Woolies</button></div>`}</div>`).join("")}</div>
+      <div class="actions">${tripWW()?`<button class="link" id="pc-all">Add all</button>`:`<button class="link" id="pc-aldi">All Aldi</button><button class="link" id="pc-ww">All Woolies</button>`}<button class="link" id="pc-none">Have all</button></div>
       <div class="actions"><span class="sp"></span>
         <button class="btn ghost" id="pc-cancel">Cancel</button><button class="btn" id="pc-ok" ${n?"":"disabled"}>Add ${n} item${n===1?"":"s"}</button></div>`);
-    scrim.querySelectorAll(".pc button").forEach(b=>b.onclick=()=>{const x=rows[b.dataset.j],v=b.dataset.v;x.need=v!=="have";if(x.need)x.store=v;draw();});
-    $("pc-aldi").onclick=()=>{rows.forEach(x=>{x.need=true;x.store="aldi";});draw();};
-    $("pc-ww").onclick=()=>{rows.forEach(x=>{x.need=true;x.store="ww";});draw();};
+    scrim.querySelectorAll(".pc button").forEach(b=>b.onclick=()=>{const x=rows[b.dataset.j],v=b.dataset.v;x.need=v!=="have";if(v==="aldi"||v==="ww")x.store=v;draw();});
+    if($("pc-all"))$("pc-all").onclick=()=>{rows.forEach(x=>x.need=true);draw();};
+    if($("pc-aldi"))$("pc-aldi").onclick=()=>{rows.forEach(x=>{x.need=true;x.store="aldi";});draw();};
+    if($("pc-ww"))$("pc-ww").onclick=()=>{rows.forEach(x=>{x.need=true;x.store="ww";});draw();};
     $("pc-none").onclick=()=>{rows.forEach(x=>x.need=false);draw();};
     $("pc-cancel").onclick=closeSheet;
     $("pc-ok").onclick=()=>{
@@ -1338,7 +1350,7 @@ function pantryCheck(k){
         g.store=store; // remembered for next time this recipe is added
         const it=findDup(g.name);
         if(it){it.done=false;it.store=store;setNeed(it,r.name,g.qty||1);if(it.aldiPrice==null&&g.aldiPrice!=null)it.aldiPrice=g.aldiPrice;if(it.wwPrice==null&&g.wwPrice!=null)it.wwPrice=g.wwPrice;}
-        else{const x={id:uid(),name:g.name,note:g.note||"",qty:g.qty||1,aisle:g.aisle||guessAisle(g.name),store:g.store||"aldi",aldiPrice:g.aldiPrice??null,wwPrice:g.wwPrice??null,avail:g.avail||"yes",recipes:[r.name],needs:{[r.name]:g.qty||1,_own:0},done:false};syncQty(x);state.items.push(x);}
+        else{const x={id:uid(),name:g.name,note:g.note||"",qty:g.qty||1,aisle:g.aisle||guessAisle(g.name),store:g.store||"aldi",aldiPrice:g.aldiPrice??null,wwPrice:g.wwPrice??null,colesPrice:g.colesPrice??null,avail:g.avail||"yes",recipes:[r.name],needs:{[r.name]:g.qty||1,_own:0},done:false};syncQty(x);state.items.push(x);}
       });
       save();closeSheet();render();
     };
@@ -1349,13 +1361,14 @@ function pantryCheck(k){
 /* ---------- prices via Claude ---------- */
 const FIELDS=`"aldi" = typical ALDI Australia regular price in AUD for one pack/each in Queensland (number; your best estimate even if ALDI rarely stocks it);
 "ww" = typical regular shelf price in AUD at Woolworths Charters Towers (regional Queensland) for a MID-RANGE TO PREMIUM brand, e.g. a2, Nudie, Barilla or De Cecco, Massel, Beechworth, Sandhurst, Always Fresh, Marion's Kitchen, Lindt or Cadbury baking, Creative Gourmet, Fairy, Kleenex, Glad, Finish (number). Never use Woolworths own brand, Essentials, Macro or the cheapest budget brand. When an item matches one of these, price that exact brand instead: ${Object.entries(BRAND_PREFS).map(([k,v])=>k+" = "+v).join("; ")}. For fresh fruit, veg and meat with no brand, use the regular Woolworths price;
+"coles" = typical regular shelf price in AUD at Coles in regional Queensland for the same kind of MID-RANGE TO PREMIUM brand (never Coles own brand) (number);
 "avail" = how reliably ALDI Australia stocks it: "yes", "maybe" or "rarely".`;
 async function askPrices(list){
-  const res=await sample.json(`Estimate supermarket prices for these items. Return only a JSON array in the same order, one object per item: {"name":string,"aldi":number,"ww":number,"avail":"yes"|"maybe"|"rarely"}.
+  const res=await sample.json(`Estimate supermarket prices for these items. Return only a JSON array in the same order, one object per item: {"name":string,"aldi":number,"ww":number,"coles":number,"avail":"yes"|"maybe"|"rarely"}.
 ${FIELDS}
 Use the size in the note when given. Items:
 ${JSON.stringify(list.map(x=>({name:x.name,note:x.note||"",store:x.store==="ww"?"Woolworths":"Aldi"})))}`,{modelTier:"quick"});
-  return (Array.isArray(res)?res:[]).map(r=>({aldiPrice:numOrNull(r.aldi),wwPrice:numOrNull(r.ww),avail:["yes","maybe","rarely"].includes(r.avail)?r.avail:"yes"}));
+  return (Array.isArray(res)?res:[]).map(r=>({aldiPrice:numOrNull(r.aldi),wwPrice:numOrNull(r.ww),colesPrice:numOrNull(r.coles),avail:["yes","maybe","rarely"].includes(r.avail)?r.avail:"yes"}));
 }
 function isPending(id){try{return estPending.has(id);}catch(e){return false;}}
 // any item saved without a price (typed, imported, from a recipe or the assistant) gets estimated in the background
@@ -1363,13 +1376,14 @@ const estPending=new Set(), estTried=new Set(); let estTimer=null;
 function queueAutoEst(){
   if(!sample)return; clearTimeout(estTimer);
   estTimer=setTimeout(async()=>{
-    const list=state.items.filter(i=>priceOf(i)==null&&!estTried.has(i.id)&&!estPending.has(i.id)).slice(0,25);
+    const list=state.items.filter(i=>(priceOf(i)==null||(isColes()&&i.colesPrice==null))&&!estTried.has(i.id)&&!estPending.has(i.id)).slice(0,25);
     if(!list.length)return;
     list.forEach(i=>{estPending.add(i.id);estTried.add(i.id);}); render();
     try{const res=await askPrices(list);
       list.forEach((it,k)=>{const r=res[k];if(!r)return;
         if(it.aldiPrice==null&&r.aldiPrice!=null)it.aldiPrice=r.aldiPrice;
         if(it.wwPrice==null&&r.wwPrice!=null)it.wwPrice=r.wwPrice;
+        if(it.colesPrice==null&&r.colesPrice!=null)it.colesPrice=r.colesPrice;
         if(!it.avail)it.avail=r.avail;});
     }catch(e){}
     list.forEach(i=>estPending.delete(i.id)); save(); render();
@@ -1380,7 +1394,7 @@ async function estimateItems(list){
   const btn=$("est-missing"); if(btn){btn.disabled=true;btn.textContent="Estimating…";}
   try{
     const res=await askPrices(list);
-    list.forEach((it,k)=>{const r=res[k];if(r){if(r.aldiPrice!=null)it.aldiPrice=r.aldiPrice;if(r.wwPrice!=null)it.wwPrice=r.wwPrice;it.avail=r.avail;}});
+    list.forEach((it,k)=>{const r=res[k];if(r){if(r.aldiPrice!=null)it.aldiPrice=r.aldiPrice;if(r.wwPrice!=null)it.wwPrice=r.wwPrice;if(r.colesPrice!=null)it.colesPrice=r.colesPrice;it.avail=r.avail;}});
     save();
   }catch(e){if(btn)btn.textContent=errCopy(e&&e.code);return;}
   render();
@@ -1496,7 +1510,7 @@ Known recipes: ${state.recipes.map(r=>r.name).join(", ")||"none"}.
 Aisle must be one of: ${AISLES.join(", ")}.
 ${FIELDS}
 Reply with only JSON in this shape:
-{"recipe":null,"items":[{"name":"Cherry tomatoes","qty":1,"note":"250g punnet","aisle":"Fruit & veg","store":"aldi","recipes":[],"aldi":2.99,"ww":3.9,"avail":"yes"}]}
+{"recipe":null,"items":[{"name":"Cherry tomatoes","qty":1,"note":"250g punnet","aisle":"Fruit & veg","store":"aldi","recipes":[],"aldi":2.99,"ww":3.9,"coles":3.9,"avail":"yes"}]}
 If it is a recipe, set "recipe" to {"title":string,"method":string} with the method steps one per line (keep the original steps); otherwise null.
 qty is a whole number of packs/items (default 1). Use clean, capitalised Australian supermarket names (capsicum not bell pepper, coriander not cilantro, shallots for spring/green onions, beef mince not ground beef, prawns not shrimp, plain flour, cornflour, icing sugar, thickened cream, tomato sauce not ketchup).${src.text?"\n\n---\n"+src.text:""}`;
   try{
@@ -1509,7 +1523,7 @@ qty is a whole number of packs/items (default 1). Use clean, capitalised Austral
       id:uid(),name:auName(String(x.name)),note:String(x.note||"").trim(),qty:Math.max(1,Math.round(+x.qty||1)),
       aisle:AISLES.includes(x.aisle)?x.aisle:guessAisle(String(x.name)),store,
       recipes:(Array.isArray(x.recipes)?x.recipes:x.recipe?[x.recipe]:[]).map(r=>String(r).trim()).filter(Boolean),
-      aldiPrice:num(x.aldi??(store==="aldi"?x.price:null)),wwPrice:num(x.ww??(store==="ww"?x.price:x.backup)),avail:["yes","maybe","rarely"].includes(x.avail)?x.avail:"yes",done:false}});
+      aldiPrice:num(x.aldi??(store==="aldi"?x.price:null)),wwPrice:num(x.ww??(store==="ww"?x.price:x.backup)),colesPrice:num(x.coles),avail:["yes","maybe","rarely"].includes(x.avail)?x.avail:"yes",done:false}});
     items.forEach(seedPrice);
     if(!items.length){openSheet(`<h2>No items found</h2><p class="status">I couldn't find anything to buy in that ${src.label}.</p><div class="actions"><span class="sp"></span><button class="btn" onclick="closeSheet()">OK</button></div>`);return;}
     if(rec){
@@ -1562,7 +1576,7 @@ const aiSave=()=>{try{localStorage.setItem(AI_KEY,JSON.stringify(aiChat.slice(-4
 function aiContext(){
   const sh=curShop(), t=totals();
   return `You are Claude, the assistant built into "Fortnight Shop", the shopping and meal app used by Hayden and his wife in Charters Towers, Queensland, Australia. Today is ${new Date().toLocaleDateString("en-AU",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}.
-How they shop: a big shop every fortnight. Aldi is the main shop; Woolworths Charters Towers for the rest (mid-range to premium brands, never Woolworths own brand; milk is Norco). This trip: ${state.trip==="ww"?"Woolworths only":"Aldi + Woolworths"}. Use Australian names (capsicum, coriander, shallots, mince, prawns) and AUD.
+How they shop: a big shop every fortnight. Aldi is the main shop; Woolworths Charters Towers for the rest (mid-range to premium brands, never Woolworths own brand; milk is Norco). This fortnight they're shopping at: ${isColes()?"Coles only (everything bought at Coles)":state.trip==="ww"?"Woolworths only":"Aldi + Woolworths"}. Use Australian names (capsicum, coriander, shallots, mince, prawns) and AUD.
 The shopping list is for the NEXT shop. The current fortnight began ${sh?new Date(sh.date).toDateString():"(not set)"}; its recipes are tracked as made/not made. List now: ${state.items.length} items, est. $${t.total.toFixed(2)}. Saved recipes: ${state.recipes.length}.
 You have tools to read and change the list, recipes and Made history; read before you change, and when you've changed something say briefly what you did. You can search the web for recipes or prices when that helps. Never put an item on the list twice (the add tool merges duplicates). Ask before removing more than a couple of items. Keep replies short and easy to read on a phone: short paragraphs or a few bullet points.`;
 }
@@ -1622,7 +1636,7 @@ const AI_TOOLS=[
       if(skip.includes(norm(g.name)))return;
       const it=findDup(g.name);
       if(it){it.done=false;setNeed(it,r.name,g.qty||1);out.push(`${it.name} ${it.qty}×`);}
-      else{const x={id:uid(),name:g.name,note:g.note||"",qty:g.qty||1,aisle:g.aisle||guessAisle(g.name),store:g.store||"aldi",aldiPrice:g.aldiPrice??null,wwPrice:g.wwPrice??null,avail:g.avail||"yes",recipes:[r.name],needs:{[r.name]:g.qty||1,_own:0},done:false};
+      else{const x={id:uid(),name:g.name,note:g.note||"",qty:g.qty||1,aisle:g.aisle||guessAisle(g.name),store:g.store||"aldi",aldiPrice:g.aldiPrice??null,wwPrice:g.wwPrice??null,colesPrice:g.colesPrice??null,avail:g.avail||"yes",recipes:[r.name],needs:{[r.name]:g.qty||1,_own:0},done:false};
         seedPrice(x);syncQty(x);state.items.push(x);out.push(`${x.name} ${x.qty}×`);}
     });
     save();render();aiDid.push(`Added ${r.name} to the list`);return{done:out};}},
