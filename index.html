@@ -20,7 +20,7 @@ body{margin:0;font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif
 img{max-width:100%}
 [hidden]{display:none!important}
 </style>
-<script>window.APP_VERSION="2026.11.13-0735";</script>
+<script>window.APP_VERSION="2026.11.13-0806";</script>
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.97.0"></script>
 <script src="standalone.js"></script>
@@ -115,6 +115,9 @@ li input:checked::after,.rv input:checked::after{content:"";width:6px;height:11p
 .newrec{display:flex;gap:6px}
 .newrec input{flex:1;min-width:0}
 .recipe h3 input{font:inherit;font-family:var(--display);font-size:1.15rem;font-weight:700;border:0;border-bottom:1px dashed var(--line);background:transparent;color:var(--fg);padding:2px 0;min-width:0;flex:1}
+.seg.cats{display:flex;flex-wrap:wrap;gap:4px;margin-top:10px}
+.seg.cats button{flex:0 0 auto;white-space:nowrap;padding:8px 12px}
+.seg.cats button[aria-pressed="true"]{background:var(--surface);color:var(--fg);font-weight:700;box-shadow:0 0 0 1px var(--line)}
 .rsearch input{font:inherit;width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--fg)}
 .rrow{padding:0;gap:0}
 .mrow{padding:0;gap:0}
@@ -610,7 +613,7 @@ function ensureRecipe(name){
   name=(name||"").trim(); if(!name)return "";
   const hit=state.recipes.find(r=>r.name.toLowerCase()===name.toLowerCase());
   if(hit)return hit.name;
-  state.recipes.push({id:uid(),name,notes:"",ingredients:[]}); return name;
+  state.recipes.push({id:uid(),name,notes:"",ingredients:[],cat:guessCat(name),catGuess:true}); return name;
 }
 
 const money=n=>"$"+(Math.round(n*100)/100).toFixed(2);
@@ -712,14 +715,41 @@ let recipeQuery="";
 const ingStore=g=>{if(tripWW())return"ww";const it=state.items.find(i=>norm(i.name)===norm(g.name));return it?it.store:(g.store||"aldi");};
 const ingPrice=g=>{if(isColes())return g.colesPrice??g.wwPrice??null;const st=ingStore(g);return(st==="ww"?g.wwPrice:g.aldiPrice)??null;};
 const recipeCost=r=>r.ingredients.reduce((a,g)=>a+(ingPrice(g)||0)*(g.qty||1),0);
+/* Recipe types. Each recipe has r.cat; old recipes get a quick guess, then Claude sorts them properly once a key is set. */
+const CATS=[["main","Mains"],["snack","Snacks"],["addon","Main add-ons"],["dessert","Desserts"],["breakfast","Breakfasts"]];
+const catName=c=>(CATS.find(x=>x[0]===c)||CATS[0])[1];
+function guessCat(n){
+  n=low(n);
+  if(/breakfast|pancake|waffle|porridge|oat|granola|muesli|smoothie|french toast|omelet|scrambled|eggs? on|bacon and egg|brekkie|crumpet/.test(n))return"breakfast";
+  if(/cake|brownie|cookie|biscuit|slice|pudding|tart|cheesecake|mousse|crumble|dessert|ice cream|pavlova|trifle|muffin|fudge|choc/.test(n))return"dessert";
+  if(/snack|dip|bliss ball|bar\b|popcorn|scroll|chips|crackers|trail mix|nachos? snack/.test(n))return"snack";
+  if(/salad|side|sauce|dressing|gravy|garlic bread|bread|naan|rice|mash|slaw|roast veg|vegetables|chips and|wedges|coleslaw/.test(n))return"addon";
+  return"main";
+}
+const catOf=r=>r.cat||guessCat(r.name);
+let catSorting=false;
+async function sortCats(){
+  const list=state.recipes.filter(r=>!r.cat||r.catGuess); if(!sample||!list.length||catSorting)return; catSorting=true;
+  try{
+    const res=await sample.json(`Sort these recipes into one type each: "main" (a main meal or dinner), "addon" (a side or add-on served with a main, e.g. salad, garlic bread, rice, sauce), "snack", "dessert" or "breakfast". Reply with only a JSON array of the types, in the same order.
+${list.map((r,k)=>`${k}. ${r.name}${r.ingredients.length?" ("+r.ingredients.slice(0,8).map(g=>g.name).join(", ")+")":""}`).join("\n")}`,{modelTier:"quick"});
+    (Array.isArray(res)?res:[]).forEach((c,k)=>{const r=list[k];if(r&&(!r.cat||r.catGuess)&&CATS.some(x=>x[0]===c)){r.cat=c;delete r.catGuess;}});
+    save(); if(state.view==="rec")drawRecipeResults();
+  }catch(e){} catSorting=false;
+}
+let recCat="all";
 function renderRecipes(){
   $("list").innerHTML=`<section class="rsearch">
       <input id="rec-search" type="search" placeholder="Search recipes or ingredients…" autocomplete="off" aria-label="Search recipes" value="${esc(recipeQuery)}">
     </section>
-    <section><ul id="rec-results"></ul></section>
+    <div class="seg cats" id="rec-cats">${[["all","All"],...CATS].map(([v,l])=>`<button type="button" data-cat="${v}" aria-pressed="${recCat===v}">${l}</button>`).join("")}</div>
+    <div id="rec-results"></div>
     <section><form class="add" id="rec-form"><input id="rec-input" placeholder="New recipe name…" autocomplete="off" aria-label="New recipe"><button class="btn" type="submit">New recipe</button></form></section>`;
   drawRecipeResults();
   $("rec-search").oninput=e=>{recipeQuery=e.target.value;drawRecipeResults();};
+  $("rec-cats").onclick=e=>{const b=e.target.closest("[data-cat]");if(!b)return;recCat=b.dataset.cat;
+    $("rec-cats").querySelectorAll("[data-cat]").forEach(x=>x.setAttribute("aria-pressed",x===b));drawRecipeResults();};
+  sortCats();
   $("rec-form").onsubmit=e=>{e.preventDefault();newRecipe({name:$("rec-input").value.trim()});};
 }
 /* recipes you've cooked: each recipe keeps the dates it was made; a date counts for 14 days */
@@ -746,8 +776,9 @@ function drawRecipeResults(){
   const hits=state.recipes.map((r,idx)=>({r,idx,ingHit:q&&!low(r.name).includes(q)?r.ingredients.filter(g=>low(g.name).includes(q)).map(g=>g.name):[]}))
     .filter(x=>!q||low(x.r.name).includes(q)||x.ingHit.length)
     .sort((a,b)=>a.r.name.localeCompare(b.r.name));
-  const ul=$("rec-results");
-  if(!hits.length){ul.outerHTML=`<p class="empty" id="rec-results">${q?"No recipes match “"+esc(recipeQuery)+"”.":"No recipes yet. Add one below, from a photo, a link or by typing it in."}</p>`;return;}
+  const box=$("rec-results");
+  const shown=hits.filter(h=>recCat==="all"||catOf(h.r)===recCat);
+  if(!shown.length){box.innerHTML=`<p class="empty">${q?"No recipes match “"+esc(recipeQuery)+"”"+(recCat!=="all"?" in "+catName(recCat):"")+".":recCat!=="all"?"No "+catName(recCat).toLowerCase()+" yet.":"No recipes yet. Add one below, from a photo, a link or by typing it in."}</p>`;return;}
   const row=({r,idx,ingHit})=>{
     const recent=madeRecently(r), made=recent.length>0;
     const onList=r.ingredients.filter(g=>state.items.some(i=>norm(i.name)===norm(g.name))).length;
@@ -763,9 +794,9 @@ function drawRecipeResults(){
       <span class="note">${bits.join(" · ")}${ingHit.length?` · has ${esc(ingHit.slice(0,3).join(", "))}`:""}</span></span>
       <span class="chev" aria-hidden="true">›</span></button>
       <button class="edit" type="button" data-redit="${idx}" aria-label="Edit ${esc(r.name)}">Edit</button></li>`;};
-  const html=hits.map(row).join("");
-  if(ul.tagName!=="UL"){ul.outerHTML=`<ul id="rec-results">${html}</ul>`;}else ul.innerHTML=html;
-  const list=$("rec-results");
+  box.innerHTML=CATS.map(([c,l])=>{const its=shown.filter(h=>catOf(h.r)===c);
+    return its.length?`<section><h2><span>${l}</span><span>${its.length}</span></h2><ul>${its.map(row).join("")}</ul></section>`:"";}).join("");
+  const list=box;
   list.onclick=e=>{const ed=e.target.closest("[data-redit]");if(ed){editRecipe(+ed.dataset.redit);return;}
     const b=e.target.closest("[data-open]");if(b)openRecipe(+b.dataset.open);};
 
@@ -874,6 +905,7 @@ function openRecipe(idx){
   const onList=r.ingredients.filter(g=>state.items.some(i=>norm(i.name)===norm(g.name))).length;
   openSheet(`<div class="recipe-sheet">
     <h3><input id="rs-name" value="${esc(r.name)}" aria-label="Recipe name"></h3>
+    <label class="tools" style="color:var(--fg)">Type <select id="rs-cat" style="font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg)">${CATS.map(([v,l])=>`<option value="${v}" ${catOf(r)===v?"selected":""}>${l}</option>`).join("")}</select></label>
     <div class="madebar">
       <button type="button" class="btn ${madeRecently(r).length?"":"ghost"}" id="rs-made" aria-pressed="${madeRecently(r).length>0}">${madeRecently(r).length?"✓ Made "+ago(madeRecently(r)[0]):"Mark as made"}</button>
       ${madeRecently(r).length?`<button type="button" class="link" id="rs-again">Made it again today</button>`:""}
@@ -890,6 +922,7 @@ function openRecipe(idx){
   </div>`);
   const refresh=()=>{save();render();openRecipe(state.recipes.indexOf(r));};
   $("rs-notes").oninput=e=>{r.notes=e.target.value;save();};
+  $("rs-cat").onchange=e=>{r.cat=e.target.value;delete r.catGuess;save();render();};
   $("rs-made").onclick=()=>{toggleMade(r,!madeRecently(r).length);render();openRecipe(state.recipes.indexOf(r));};
   if($("rs-again"))$("rs-again").onclick=()=>{toggleMade(r,true);render();openRecipe(state.recipes.indexOf(r));};
   $("rs-name").onchange=e=>{
@@ -1246,6 +1279,7 @@ function newRecipe(pre){
     <div id="nr-srcbody" hidden></div>
     <p class="status" id="nr-pstatus" aria-live="polite"></p>`:""}
     <label class="field">Recipe name<input id="nr-name" value="${esc(pre.name||"")}" placeholder="e.g. Chicken laksa" autocomplete="off"></label>
+    <label class="field">Type<select id="nr-cat">${CATS.map(([v,l])=>`<option value="${v}" ${(ed?catOf(ed):pre.cat||(recCat!=="all"?recCat:"main"))===v?"selected":""}>${l}</option>`).join("")}</select></label>
     <label class="field">Ingredients, one per line<textarea id="nr-ings" placeholder="2 x Coconut milk 400ml&#10;Laksa paste&#10;Hokkien noodles 450g&#10;Lemongrass">${esc(pre.ings||"")}</textarea></label>
     <label class="field">Method and notes<textarea id="nr-method" placeholder="1. Fry the paste…&#10;2. Add stock and coconut milk…">${esc(pre.method||"")}</textarea></label>
     ${ed?"":`<label class="tools" style="font-size:.9rem;color:var(--fg)"><input type="checkbox" id="nr-shop" ${pre.shop===false?"":"checked"}> Add the ingredients to my list now (pantry check first)</label>`}
@@ -1257,10 +1291,11 @@ function newRecipe(pre){
   $("nr-save").onclick=()=>{
     const err=$("nr-err"), name=$("nr-name").value.trim();
     if(!name){err.hidden=false;err.textContent="Give the recipe a name.";$("nr-name").focus();return;}
-    if(ed)return saveEdit(ed,name,err);
+    if(ed){ed.cat=$("nr-cat").value;delete ed.catGuess;return saveEdit(ed,name,err);}
     const existing=state.recipes.find(r=>low(r.name)===low(name));
     if(existing&&!$("nr-save").dataset.ok){err.hidden=false;err.textContent=`You already have a recipe called ${existing.name}. Tap Save again to add these ingredients and method to it.`;$("nr-save").dataset.ok="1";return;}
     const rname=ensureRecipe(name), r=state.recipes.find(x=>x.name===rname);
+    r.cat=$("nr-cat").value; delete r.catGuess;
     $("nr-ings").value.split(/\n+/).map(parseLine).filter(Boolean).forEach(g=>{
       const k=r.ingredients.findIndex(x=>norm(x.name)===norm(g.name));
       if(k<0)r.ingredients.push(g); else r.ingredients[k].qty=(r.ingredients[k].qty||1)+(g.qty||1);
