@@ -312,6 +312,8 @@ html.sheet-open,html.sheet-open body{overflow:hidden}
     <strong>Finished this shop?</strong>
     <p class="status" id="c-recipes"></p>
     <label class="tools" id="c-carry-wrap" hidden><input type="checkbox" id="c-carry" checked> <span id="c-carry-txt"></span></label>
+    <label class="trip" style="margin:8px 0"><span>Next fortnight I'm shopping at</span>
+      <select id="c-trip" aria-label="Where you're shopping next fortnight"><option value="both">Aldi &amp; Woolworths</option><option value="ww">Woolworths</option><option value="coles">Coles</option></select></label>
     <p class="status">Then get the list ready for the next shop:</p>
     <div class="row">
       <button class="btn" id="c-clear">Remove ticked items</button>
@@ -753,6 +755,7 @@ function recipesOnList(){
   return state.recipes.filter(r=>ids.has(r.id));
 }
 function finishShop(carry){
+  const nt=$("c-trip")&&$("c-trip").value; if(nt){state.trip=nt;if(nt!=="both"&&state.view==="aldi")state.view="ww";}
   const ids=recipesOnList().map(r=>r.id);
   if(carry)unmadeInShop().forEach(r=>{if(!ids.includes(r.id))ids.push(r.id);});
   const now=new Date().toISOString();
@@ -925,6 +928,7 @@ $("new-shop").onclick=()=>{
     :`No recipes are tagged on this list, so the Made tab will only show any you carry over or add there yourself.`;
   $("c-carry-wrap").hidden=!carry.length;
   $("c-carry-txt").textContent=`Carry over ${carry.length} not made yet from the last shop (${carry.map(r=>r.name).join(", ")})`;
+  $("c-trip").value=state.trip||"both";
   $("confirm").hidden=false;$("confirm").scrollIntoView({behavior:"smooth",block:"center"});
 };
 // the Made tab's "Start next fortnight" uses the same panel; after it, show the new fortnight
@@ -1295,41 +1299,74 @@ function confirmMerge(dup,vals,onMerge,onBack){
 }
 
 /* ---------- pantry check before adding a recipe ---------- */
-const pcPrice=x=>isColes()?(x.g.colesPrice??x.g.wwPrice??null):tripWW()||x.store==="ww"?x.g.wwPrice??null:x.g.aldiPrice??null;
-function pantryCheck(k){
+const pcPrice=x=>{const st=x.choice==="ww"||x.choice==="add"?"ww":"aldi";
+  return isColes()?(x.g.colesPrice??x.g.wwPrice??null):tripWW()||st==="ww"?x.g.wwPrice??null:x.g.aldiPrice??null;};
+/* Add a recipe to the list: you pick where each ingredient is bought (nothing lands on Aldi unless you tick it),
+   and every ingredient is matched against the list first so it's added to the existing line, never a second one. */
+async function pantryCheck(k){
   const r=state.recipes[k]; if(!r)return;
-  const rows=r.ingredients.map(g=>{const it=state.items.find(i=>norm(i.name)===norm(g.name)&&!i.done);
-    const counted=!!(it&&it.needs&&it.needs[r.name]!=null);
-    const after=it?Math.max(1,recipeSum(it)-(counted?+it.needs[r.name]:0)+(g.qty||1)+(+it.needs._own||0)):g.qty||1;
-    return{g,on:it,onList:!!it,counted,after,need:!counted,store:it?it.store:(g.store==="ww"?"ww":"aldi")};});
+  const live=()=>state.items.filter(i=>!i.done);
+  const match=new Map(); // ingredient -> the list item it is the same as
+  r.ingredients.forEach(g=>{const it=live().find(i=>norm(i.name)===norm(g.name))||findDup(g.name);if(it)match.set(g,it);});
+  const loose=r.ingredients.filter(g=>!match.has(g));
+  if(sample&&loose.length&&state.items.length){
+    openSheet(`<h2>Add ${esc(r.name)}</h2><p class="status">Checking your list so nothing is doubled up…</p>`);
+    try{
+      const list=state.items.slice(0,250);
+      const res=await sample.json(`A recipe's ingredients are being added to a grocery list. For each ingredient, say which list line is the SAME product a shopper would buy as one item (written differently is fine, e.g. "Garlic cloves" = "Garlic", "Diced tomatoes 400g" = "Tinned tomatoes"). Different varieties are NOT the same: red onion vs brown onion, milk vs long life milk, chicken breast vs thigh, minced garlic jar vs fresh garlic. Only match when confident.
+Reply with only JSON: {"matches":[{"ingredient":number,"line":number}]} (empty list if none).
+Ingredients:
+${loose.map((g,j)=>`${j}. ${g.name}${g.note?" ("+g.note+")":""}`).join("\n")}
+List:
+${list.map((i,j)=>`${j}. ${i.name}${i.note?" ("+i.note+")":""}`).join("\n")}`,{modelTier:"quick"});
+      (res&&Array.isArray(res.matches)?res.matches:[]).forEach(m=>{const g=loose[+m.ingredient],it=list[+m.line];if(g&&it&&!match.has(g))match.set(g,it);});
+    }catch(e){} // the exact check above still stands
+    if(scrim.hidden)return; // closed while checking
+  }
+  const rows=r.ingredients.map(g=>{const it=match.get(g)||null;
+    const counted=!!(it&&!it.done&&it.needs&&it.needs[r.name]!=null);
+    const after=it?Math.max(1,recipeSum(it)-(counted?+it.needs[r.name]:0)+(g.qty||1)+(+(it.needs||{})._own||0)):g.qty||1;
+    // where it goes: one-store trip = that list; otherwise the line it's already on, or what you picked last time, or nothing yet
+    const choice=counted?"have":tripWW()?"add":it&&!it.done?it.store:g.storePicked?(g.store==="ww"?"ww":"aldi"):null;
+    return{g,on:it,onList:!!(it&&!it.done),counted,after,choice};});
+  const need=x=>x.choice&&x.choice!=="have";
   const draw=()=>{
-    const n=rows.filter(x=>x.need).length;
+    const n=rows.filter(need).length, unpicked=rows.filter(x=>!x.choice).length;
     openSheet(`<h2>Add ${esc(r.name)}</h2>
-      <p class="status">Check the cupboard first. Tap <strong>Have it</strong> to leave an ingredient off, or ${tripWW()?`<strong>Add</strong> to put it on the ${oneName()} list`:`<strong>Aldi</strong> or <strong>Woolies</strong> to put it on that list`}. Anything already on the list gets this recipe's amount added to it, so you get one line with the total instead of a second line.</p>
+      <p class="status">Check the cupboard first. Tap <strong>Have it</strong> to leave an ingredient off, or ${tripWW()?`<strong>Add</strong> to put it on the ${oneName()} list`:`<strong>Aldi</strong> or <strong>Woolies</strong>. Only ticked items are added, to the store you tick`}. Anything already on your list gets this recipe's amount added to that line, so nothing is doubled up.</p>
       <div>${rows.map((x,j)=>`<div class="rv"><span class="txt"><span class="name">${x.g.qty>1?`<span class="qty">${x.g.qty}×</span>`:""}${esc(x.g.name)}${x.g.note?` <span class="note">${esc(x.g.note)}</span>`:""}</span>
-        <span class="note">${x.need?(tripWW()?oneName():storeName(x.store)):"Not buying"}${x.need&&pcPrice(x)!=null?" · ~"+money(pcPrice(x)*(x.g.qty||1)):""}${x.onList?(x.counted?` · on list, ${x.on.qty||1}× already includes this recipe`:` · on list as ${x.on.qty||1}×${x.need&&x.after!==(x.on.qty||1)?` → <strong>${x.after}×</strong>`:""}`):""}</span></span>
-        ${tripWW()?`<div class="seg pc two"><button type="button" data-j="${j}" data-v="have" aria-pressed="${!x.need}">Have it</button><button type="button" data-j="${j}" data-v="add" aria-pressed="${x.need}">Add</button></div>`
-        :`<div class="seg pc"><button type="button" data-j="${j}" data-v="have" aria-pressed="${!x.need}">Have it</button><button type="button" data-j="${j}" data-v="aldi" aria-pressed="${x.need&&x.store==="aldi"}">Aldi</button><button type="button" data-j="${j}" data-v="ww" aria-pressed="${x.need&&x.store==="ww"}">Woolies</button></div>`}</div>`).join("")}</div>
+        <span class="note">${!x.choice?"Pick where to buy it":need(x)?(tripWW()?oneName():storeName(x.choice)):"Not buying"}${need(x)&&pcPrice(x)!=null?" · ~"+money(pcPrice(x)*(x.g.qty||1)):""}${x.onList?(x.counted?` · on list, ${x.on.qty||1}× already includes this recipe`:` · on list as ${x.on.qty||1}× ${norm(x.on.name)!==norm(x.g.name)?esc(x.on.name)+" ":""}${need(x)&&x.after!==(x.on.qty||1)?`→ <strong>${x.after}×</strong>`:""}`):""}</span></span>
+        ${tripWW()?`<div class="seg pc two"><button type="button" data-j="${j}" data-v="have" aria-pressed="${x.choice==="have"}">Have it</button><button type="button" data-j="${j}" data-v="add" aria-pressed="${x.choice==="add"}">Add</button></div>`
+        :`<div class="seg pc"><button type="button" data-j="${j}" data-v="have" aria-pressed="${x.choice==="have"}">Have it</button><button type="button" data-j="${j}" data-v="aldi" aria-pressed="${x.choice==="aldi"}">Aldi</button><button type="button" data-j="${j}" data-v="ww" aria-pressed="${x.choice==="ww"}">Woolies</button></div>`}</div>`).join("")}</div>
       <div class="actions">${tripWW()?`<button class="link" id="pc-all">Add all</button>`:`<button class="link" id="pc-aldi">All Aldi</button><button class="link" id="pc-ww">All Woolies</button>`}<button class="link" id="pc-none">Have all</button></div>
+      ${unpicked?`<p class="status">${unpicked} not picked yet. They won't be added.</p>`:""}
       <div class="actions"><span class="sp"></span>
         <button class="btn ghost" id="pc-cancel">Cancel</button><button class="btn" id="pc-ok" ${n?"":"disabled"}>Add ${n} item${n===1?"":"s"}</button></div>`);
-    scrim.querySelectorAll(".pc button").forEach(b=>b.onclick=()=>{const x=rows[b.dataset.j],v=b.dataset.v;x.need=v!=="have";if(v==="aldi"||v==="ww")x.store=v;draw();});
-    if($("pc-all"))$("pc-all").onclick=()=>{rows.forEach(x=>x.need=true);draw();};
-    if($("pc-aldi"))$("pc-aldi").onclick=()=>{rows.forEach(x=>{x.need=true;x.store="aldi";});draw();};
-    if($("pc-ww"))$("pc-ww").onclick=()=>{rows.forEach(x=>{x.need=true;x.store="ww";});draw();};
-    $("pc-none").onclick=()=>{rows.forEach(x=>x.need=false);draw();};
+    scrim.querySelectorAll(".pc button").forEach(b=>b.onclick=()=>{rows[b.dataset.j].choice=b.dataset.v;draw();});
+    const all=v=>()=>{rows.forEach(x=>{if(!x.counted)x.choice=v;});draw();};
+    if($("pc-all"))$("pc-all").onclick=all("add");
+    if($("pc-aldi"))$("pc-aldi").onclick=all("aldi");
+    if($("pc-ww"))$("pc-ww").onclick=all("ww");
+    $("pc-none").onclick=()=>{rows.forEach(x=>x.choice="have");draw();};
     $("pc-cancel").onclick=closeSheet;
     $("pc-ok").onclick=()=>{
-      rows.filter(x=>x.need).forEach(({g,store})=>{
-        g.store=store; // remembered for next time this recipe is added
-        const it=findDup(g.name);
-        if(it){it.done=false;it.store=store;setNeed(it,r.name,g.qty||1);if(it.aldiPrice==null&&g.aldiPrice!=null)it.aldiPrice=g.aldiPrice;if(it.wwPrice==null&&g.wwPrice!=null)it.wwPrice=g.wwPrice;}
-        else{const x={id:uid(),name:g.name,note:g.note||"",qty:g.qty||1,aisle:g.aisle||guessAisle(g.name),store:g.store||"aldi",aldiPrice:g.aldiPrice??null,wwPrice:g.wwPrice??null,colesPrice:g.colesPrice??null,avail:g.avail||"yes",recipes:[r.name],needs:{[r.name]:g.qty||1,_own:0},done:false};syncQty(x);state.items.push(x);}
+      rows.filter(need).forEach(x=>{
+        const g=x.g, store=tripWW()?"ww":x.choice; // a Woolies or Coles trip never puts anything on the Aldi list
+        if(!tripWW()){g.store=store;g.storePicked=true;} // remembered for next time this recipe is added
+        const it=(x.on&&state.items.includes(x.on)?x.on:null)||findDup(g.name);
+        if(it){it.done=false;if(!tripWW()||it.store!=="aldi")it.store=store;else it.store="ww";setNeed(it,r.name,g.qty||1);
+          ["aldiPrice","wwPrice","colesPrice"].forEach(f=>{if(it[f]==null&&g[f]!=null)it[f]=g[f];});}
+        else{const n={id:uid(),name:g.name,note:g.note||"",qty:g.qty||1,aisle:g.aisle||guessAisle(g.name),store,aldiPrice:g.aldiPrice??null,wwPrice:g.wwPrice??null,colesPrice:g.colesPrice??null,avail:g.avail||"yes",recipes:[r.name],needs:{[r.name]:g.qty||1,_own:0},done:false};syncQty(n);state.items.push(n);}
       });
-      save();closeSheet();render();
+      foldExact(); save();closeSheet();render();
     };
   };
   draw();
+}
+// last safety net: any two lines with the same item become one, with the total
+function foldExact(){
+  const seen=[];
+  [...state.items].forEach(i=>{const d=seen.find(x=>norm(x.name)===norm(i.name));if(d)combineLines([d,i]);else seen.push(i);});
 }
 
 /* ---------- prices via Claude ---------- */
