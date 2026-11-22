@@ -585,7 +585,8 @@ state.items.forEach(i=>{
   state.recipes.forEach(r=>{const o=[];r.ingredients.forEach(g=>{const d=o.find(x=>norm(x.name)===norm(g.name));if(d)d.qty=(d.qty||1)+(g.qty||1);else o.push(g);});r.ingredients=o;});
 })();
 // every change is cached on this device straight away, then sent to the shared list a moment later
-const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){} if(typeof queueSync==="function")queueSync(); try{queueAutoEst();}catch(e){}};
+const save=()=>{try{state.recipes.forEach(tidyRecipe);state.items.forEach(i=>{const n=gramsNote(i.note,i.name);if(n!==(i.note||""))i.note=n;});}catch(e){}
+  try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){} if(typeof queueSync==="function")queueSync(); try{queueAutoEst();}catch(e){}};
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const storeName=s=>s==="aldi"?"Aldi":"Woolworths";
@@ -906,9 +907,11 @@ function renderMade(){
     const b=e.target.closest("[data-open]"); if(b)openRecipe(+b.dataset.open);
   };
 }
+const srcLinkHtml=t=>{const u=firstUrl(t);return u?`<a class="btn ghost" href="${esc(u)}" target="_blank" rel="noopener">Open the recipe page</a>`:"";};
 function openRecipe(idx){
   const r=state.recipes[idx]; if(!r)return;
-  const onList=r.ingredients.filter(g=>state.items.some(i=>norm(i.name)===norm(g.name))).length;
+  const onIt=g=>state.items.find(i=>norm(i.name)===norm(g.name)||(g.shop&&norm(i.name)===norm(g.shop.name)));
+  const onList=r.ingredients.filter(onIt).length;
   openSheet(`<div class="recipe-sheet">
     <h3><input id="rs-name" value="${esc(r.name)}" aria-label="Recipe name"></h3>
     <label class="tools" style="color:var(--fg)">Type <select id="rs-cat" style="font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg)">${CATS.map(([v,l])=>`<option value="${v}" ${catOf(r)===v?"selected":""}>${l}</option>`).join("")}</select></label>
@@ -918,16 +921,20 @@ function openRecipe(idx){
       <span class="note">${lastMade(r)?(madeRecently(r).length>1?`${madeRecently(r).length}× this fortnight`:madeRecently(r).length?"":`Last made ${dayName(lastMade(r))}`):"Not made yet"}</span>
     </div>
     <p class="note">${onList}/${r.ingredients.length} on list · Woolworths items outlined in brown · ✓ already on the list</p>
-    <div class="ing">${r.ingredients.length?r.ingredients.map((g,gi)=>{const it=state.items.find(i=>norm(i.name)===norm(g.name));
+    <div class="ing">${r.ingredients.length?r.ingredients.map((g,gi)=>{const it=onIt(g);
       return `<span class="ingchip ${g.store==="ww"?"w":""} ${it&&it.done?"d":""}">${it?"✓ ":""}${g.qty>1?g.qty+"× ":""}${esc(g.name)}<button class="x" type="button" data-ingdel="${gi}" aria-label="Remove ${esc(g.name)} from recipe">×</button></span>`}).join(""):`<span>No ingredients saved yet</span>`}</div>
     <form class="newrec" id="rs-ingform"><input id="rs-ing" placeholder="Add an ingredient…" autocomplete="off" aria-label="New ingredient"><button class="btn ghost" type="submit">Save</button></form>
-    <label class="field">Method and notes<textarea id="rs-notes" placeholder="Steps, cooking notes or a link to the recipe">${esc(r.notes)}</textarea></label>
+    <label class="field">Method <span>One step per line. They're numbered for you.</span><textarea id="rs-notes" placeholder="Fry the paste&#10;Add stock and coconut milk">${esc(r.notes)}</textarea></label>
+    <label class="field">Recipe link or where to find it<input id="rs-src" value="${esc(r.source||"")}" placeholder="https://… or e.g. Mum's cookbook, page 42" autocomplete="off"></label>
+    <div id="rs-srclink">${srcLinkHtml(r.source)}</div>
     <div class="actions"><button class="link" id="rs-del" type="button">Delete recipe</button><span class="sp"></span>
       <button class="btn ghost" id="rs-edit" type="button">Edit</button>
       <button class="btn" id="rs-add" type="button" ${r.ingredients.length?"":"disabled"}>Add to list</button></div>
   </div>`);
   const refresh=()=>{save();render();openRecipe(state.recipes.indexOf(r));};
   $("rs-notes").oninput=e=>{r.notes=e.target.value;save();};
+  $("rs-notes").onchange=e=>{r.notes=e.target.value;tidyRecipe(r);e.target.value=r.notes;$("rs-src").value=r.source;$("rs-srclink").innerHTML=srcLinkHtml(r.source);save();};
+  $("rs-src").oninput=e=>{r.source=e.target.value;$("rs-srclink").innerHTML=srcLinkHtml(r.source);save();};
   $("rs-cat").onchange=e=>{r.cat=e.target.value;delete r.catGuess;save();render();};
   $("rs-made").onclick=()=>{toggleMade(r,!madeRecently(r).length);render();openRecipe(state.recipes.indexOf(r));};
   if($("rs-again"))$("rs-again").onclick=()=>{toggleMade(r,true);render();openRecipe(state.recipes.indexOf(r));};
@@ -1183,6 +1190,106 @@ function parseLine(line){
   const g={name:name.charAt(0).toUpperCase()+name.slice(1),qty,note,aisle:guessAisle(name),store:"aldi"};
   seedPrice(g); return g;
 }
+
+/* ---------- recipe method: numbered steps, plus where the recipe came from ---------- */
+function splitMethod(text){
+  const steps=[],src=[];
+  String(text||"").split(/\r?\n/).forEach(l=>{
+    const t=l.trim(); if(!t)return;
+    if(/^\s*(source|from|link|recipe from|found (it )?(at|in|on)|original recipe)\s*[:\-–]|https?:\/\//i.test(t)){src.push(t.replace(/^\s*(source|from|link)\s*[:\-–]\s*/i,""));return;}
+    steps.push(t.replace(/^(?:step\s*)?\d+\s*[.):\-–]\s*|^step\s*\d+\s*$|^[\-•*·]\s*/i,"").trim());
+  });
+  let st=steps.filter(Boolean);
+  // one long paragraph becomes one step per sentence
+  if(st.length===1&&st[0].length>160){const parts=st[0].split(/(?<=[.!?])\s+(?=[A-Z])/);if(parts.length>2)st=parts;}
+  return{method:st.map((t,k)=>`${k+1}. ${t}`).join("\n"),source:src};
+}
+function tidyRecipe(r){
+  if(!r)return r;
+  const sp=splitMethod(r.notes);
+  let src=String(r.source||"").trim();
+  sp.source.forEach(l=>{if(!src.split("\n").includes(l))src=src?src+"\n"+l:l;});
+  r.notes=sp.method; r.source=src; return r;
+}
+const firstUrl=t=>{const m=String(t||"").match(/https?:\/\/[^\s)]+/);return m?m[0]:"";};
+
+/* ---------- shopping amounts in grams (liquids stay in ml or L) ---------- */
+function amountNum(s){
+  s=String(s).trim().replace(",","."); const fr={"½":.5,"¼":.25,"¾":.75,"⅓":1/3,"⅔":2/3};
+  let m=s.match(/^(\d+)\s*([½¼¾⅓⅔])$/); if(m)return +m[1]+fr[m[2]]; if(fr[s]!=null)return fr[s];
+  m=s.match(/^(\d+)\s+(\d+)\/(\d+)$/); if(m)return +m[1]+m[2]/m[3];
+  m=s.match(/^(\d+)\/(\d+)$/); if(m)return m[1]/m[2]; return +s;
+}
+function cupGrams(n){
+  n=low(n||"");
+  const t=[[/brown sugar/,200],[/flour|icing/,150],[/sugar/,220],[/rice/,200],[/oat/,90],[/butter/,250],[/cheese|parmesan|cheddar|feta|ricotta/,110],
+    [/honey|syrup/,340],[/cocoa/,100],[/choc/,190],[/nut|almond|cashew|walnut|pecan/,140],[/coconut/,90],
+    [/coriander|parsley|basil|mint|dill|herb|rocket|spinach|leaves/,30],[/pea|corn/,150],[/lentil|chickpea|bean/,200],
+    [/yog|cream|milk|juice|stock|water|oil|sauce/,250],[/tomato|capsicum|onion|carrot|celery|zucchini|mushroom|broccoli/,150]];
+  for(const[re,g] of t)if(re.test(n))return g; return 150;
+}
+const roundG=g=>g>=1000?Math.round(g/50)*50:g>=100?Math.round(g/10)*10:Math.max(5,Math.round(g/5)*5);
+// grams from recipe wording (kg, g, lb, oz, cups, tbsp, tsp); null when there's no weight or measure in it
+function gramsFrom(text,name){
+  const t=String(text||""), N="(\\d+\\s*[½¼¾⅓⅔]|\\d+\\s+\\d+\\/\\d+|\\d+\\/\\d+|\\d+(?:[.,]\\d+)?|[½¼¾⅓⅔])\\s*";
+  const try1=(u,f,exact)=>{const m=t.match(new RegExp(N+"(?:"+u+")\\b","i"));if(!m)return null;const v=f(amountNum(m[1]));return exact?Math.round(v):roundG(v);};
+  return try1("g|grams?|gm",x=>x,true)??try1("kg|kilos?|kilograms?",x=>x*1000,true)??try1("lbs?|pounds?",x=>x*453.6)??try1("oz|ounces?",x=>x*28.35)
+    ??try1("cups?",x=>x*cupGrams(name))??try1("tbsp|tbs|tablespoons?",x=>x*cupGrams(name)/12.5)??try1("tsp|teaspoons?",x=>x*cupGrams(name)/50);
+}
+// an item's size note in grams; only rewritten when it has kg, lb, oz, cups or spoons in it
+function gramsNote(note,name){
+  const n=String(note||"");
+  if(!/\d|[½¼¾⅓⅔]/.test(n)||!/\b(kg|kilos?|kilograms?|lbs?|pounds?|oz|ounces?|cups?|tbsp|tbs|tablespoons?|tsp|teaspoons?)\b/i.test(n))return n;
+  const gr=gramsFrom(n,name); if(gr==null)return n;
+  const box=(n.match(/\b(can|tin|jar|pack|bag|bunch|punnet|tub|bottle|box|tray)s?\b/i)||[])[0];
+  return gr+"g"+(box?" "+box.toLowerCase():"");
+}
+// best guess without Claude: name = words before the first amount, note = grams
+function shopFormLocal(g){
+  const nm=String(g.name||""), full=(nm+" "+(g.note||"")).trim();
+  const cut=nm.search(/\s(\d|[½¼¾⅓⅔])/);
+  const name=cut>1?nm.slice(0,cut).replace(/[\s,(–-]+$/,""):nm;
+  const gr=gramsFrom(full,name), liq=full.match(/\d+(?:\.\d+)?\s*(ml|l|litres?|liters?)\b/i);
+  const note=gr!=null?gr+"g":liq&&!/\d\s*(g|kg)\b/i.test(g.note||"")?liq[0].replace(/\s+/,""):(g.note||(cut>1?nm.slice(cut).trim():""));
+  return{name:auName(name),qty:g.qty||1,note};
+}
+const shopSig=g=>`${g.name}|${g.note||""}|${g.qty||1}`;
+/* Turns recipe ingredients into shopping lines (clean name, packs, amount in grams) and keeps the answer
+   on the ingredient, so the same recipe goes on the list the same way next time. */
+async function shopForms(ings){
+  const need=ings.filter(g=>!(g.shop&&g.shop.sig===shopSig(g)&&(g.shop.ai||!sample)));
+  if(!need.length)return;
+  let res=null;
+  if(sample){try{res=await sample.json(`These are ingredients from a recipe, being put on an Australian grocery shopping list. For each one give the shopping line:
+"name": the product to buy as a capitalised Australian supermarket name, with no amounts, preparation or cooking words (e.g. "Chicken thigh fillets 2 lb (about 900g) boneless, skinless" -> "Chicken thigh fillets"; "Fresh coriander 1 cup leaves, 1 bunch" -> "Coriander"; "Limes 3 Tbsp juice total, 2 limes" -> "Limes").
+"qty": whole number of items or packs to buy (2 for "2 limes"; 1 for one bunch, bag, bulb or pack; default 1).
+"note": the total amount in GRAMS, converted from cups, spoons, pounds, ounces or kilograms (e.g. "900g", "2750g", "30g"). Liquids in ml or L (e.g. "500ml", "2L"). Fresh produce counted by number or bunch with no weight given: its approximate weight, e.g. "about 140g". Empty only if there's nothing to go on.
+Reply with only a JSON array in the same order: [{"name":string,"qty":number,"note":string}].
+${need.map((g,k)=>`${k}. ${(g.qty||1)>1?g.qty+" x ":""}${g.name}${g.note?" ("+g.note+")":""}`).join("\n")}`,{modelTier:"quick"});}catch(e){}}
+  need.forEach((g,k)=>{const x=Array.isArray(res)?res[k]:null;
+    const f=x&&x.name?{name:auName(String(x.name).trim()),qty:Math.max(1,Math.round(+x.qty||1)),note:gramsNote(String(x.note||"").trim(),String(x.name))}:shopFormLocal(g);
+    g.shop={...f,sig:shopSig(g),ai:!!(x&&x.name)};});
+}
+const shopView=g=>({...g,...(g.shop?{name:g.shop.name,qty:g.shop.qty,note:g.shop.note}:{}),_orig:g});
+// lines already on the list with amounts in their names ("Chicken thigh fillets 2 lb (about 900g)") are tidied once
+let tidyingList=false;
+async function tidyListAmounts(){
+  if(!sample||tidyingList||readOnlyNow())return;
+  let done=[]; try{done=JSON.parse(localStorage.getItem("fs-gram-tidy"))||[];}catch(e){}
+  const its=state.items.filter(i=>!done.includes(i.id)&&(/\s(\d|[½¼¾⅓⅔])/.test(i.name)||gramsNote(i.note,i.name)!==i.note)).slice(0,30);
+  if(!its.length)return; tidyingList=true;
+  try{
+    const tmp=its.map(i=>({name:i.name,note:i.note||"",qty:1}));
+    await shopForms(tmp);
+    tmp.forEach((t,k)=>{const i=its[k],f=t.shop; if(!f)return;
+      const clash=state.items.some(o=>o!==i&&norm(o.name)===norm(f.name));
+      if(!clash&&f.name)i.name=f.name;
+      if(f.note)i.note=f.note;});
+    its.forEach(i=>done.push(i.id)); try{localStorage.setItem("fs-gram-tidy",JSON.stringify(done.slice(-500)))}catch(e){}
+    save(); render();
+  }catch(e){} tidyingList=false;
+}
+const readOnlyNow=()=>{try{return readOnly;}catch(e){return false;}};
 /* New recipe: fill the form from a photo, a link or pasted text */
 async function fillRecipe(src){
   const st=$("nr-pstatus"); st.classList.remove("err");
@@ -1193,7 +1300,7 @@ async function fillRecipe(src){
       :`Below is ${src.url?"the text of the recipe page "+src.url:"a recipe the user pasted"}.`;
     const r=await sample.json(`${what} Split it into its title, shopping ingredients and method. Reply with only JSON:
 {"title":string,"ingredients":[{"name":string,"qty":number,"note":string}],"method":string}
-For ingredients: clean capitalised Australian supermarket names (capsicum not bell pepper, coriander not cilantro, shallots for spring/green onions, mince not ground meat, prawns, plain flour, cornflour, thickened cream), qty = whole number of packs/items to buy (default 1), note = pack size if stated. Skip water, salt and pepper. Keep the method's steps and wording, one step per line. If there is no recipe in it, reply {"title":"","ingredients":[],"method":""}.${src.text?"\n\n---\n"+src.text:""}`,
+For ingredients: clean capitalised Australian supermarket names (capsicum not bell pepper, coriander not cilantro, shallots for spring/green onions, mince not ground meat, prawns, plain flour, cornflour, thickened cream), qty = whole number of packs/items to buy (default 1), note = the amount in grams, converted from cups, spoons, pounds, ounces or kg (e.g. "900g"; liquids in ml or L), keeping prep words out of the name. Skip water, salt and pepper. Keep the method's steps and wording, one step per line. If there is no recipe in it, reply {"title":"","ingredients":[],"method":""}.${src.text?"\n\n---\n"+src.text:""}`,
       src.image?{images:[src.image]}:{modelTier:"quick"});
     if(!$("nr-name"))return; // sheet was closed
     const ings=(r&&Array.isArray(r.ingredients)?r.ingredients:[]).filter(x=>x&&x.name)
@@ -1201,8 +1308,8 @@ For ingredients: clean capitalised Australian supermarket names (capsicum not be
     if(!ings.length&&!(r&&r.title))throw{code:"refused"};
     if(r.title&&!$("nr-name").value.trim())$("nr-name").value=String(r.title);
     if(ings.length)$("nr-ings").value=ings.join("\n");
-    const meth=[r.method?String(r.method).trim():"",src.url?"Source: "+src.url:""].filter(Boolean).join("\n\n");
-    if(meth)$("nr-method").value=meth;
+    if(r.method)$("nr-method").value=splitMethod(String(r.method)).method;
+    if(src.url&&!$("nr-src").value.trim())$("nr-src").value=src.url;
     $("nr-srcbody").hidden=true; scrim.querySelectorAll("[data-src]").forEach(b=>b.setAttribute("aria-pressed","false"));
     st.textContent=`Filled in ${ings.length} ingredient${ings.length===1?"":"s"}. Check them, then Save recipe.`;
   }catch(e){
@@ -1243,8 +1350,8 @@ function recipeSources(){
         const url=$("nr-url").value.trim();
         if(!/^https?:\/\/\S+\.\S+/.test(url)){st.classList.add("err");st.textContent="Enter a full link starting with https://";return;}
         if(noLinks){ // can't open it here, so keep the link with the recipe
-          const m=$("nr-method"); if(!m.value.includes(url))m.value=(m.value.trim()?m.value.trim()+"\n\n":"")+"Source: "+url;
-          st.classList.remove("err"); st.textContent="Link saved in Method and notes.";return;}
+          const sv=$("nr-src"); if(!sv.value.includes(url))sv.value=sv.value.trim()?sv.value.trim()+" · "+url:url;
+          st.classList.remove("err"); st.textContent="Link saved under Recipe link.";return;}
         st.classList.remove("err"); st.textContent="Opening the page…"; $("nr-urlgo").disabled=true;
         try{
           await mcp.callTool("host:claude_browser","navigate",{url});
@@ -1275,7 +1382,7 @@ function recipeSources(){
 const ingLine=g=>`${(g.qty||1)>1?g.qty+" x ":""}${g.name}${g.note?" "+g.note:""}`;
 function editRecipe(idx){
   const r=state.recipes[idx]; if(!r)return;
-  newRecipe({edit:r,name:r.name,ings:r.ingredients.map(ingLine).join("\n"),method:r.notes||"",shop:false});
+  newRecipe({edit:r,name:r.name,ings:r.ingredients.map(ingLine).join("\n"),method:r.notes||"",source:r.source||"",shop:false});
 }
 function newRecipe(pre){
   pre=pre||{}; const ed=pre.edit;
@@ -1287,13 +1394,17 @@ function newRecipe(pre){
     <label class="field">Recipe name<input id="nr-name" value="${esc(pre.name||"")}" placeholder="e.g. Chicken laksa" autocomplete="off"></label>
     <label class="field">Type<select id="nr-cat">${CATS.map(([v,l])=>`<option value="${v}" ${(ed?catOf(ed):pre.cat||(recCat!=="all"?recCat:"main"))===v?"selected":""}>${l}</option>`).join("")}</select></label>
     <label class="field">Ingredients, one per line<textarea id="nr-ings" placeholder="2 x Coconut milk 400ml&#10;Laksa paste&#10;Hokkien noodles 450g&#10;Lemongrass">${esc(pre.ings||"")}</textarea></label>
-    <label class="field">Method and notes<textarea id="nr-method" placeholder="1. Fry the paste…&#10;2. Add stock and coconut milk…">${esc(pre.method||"")}</textarea></label>
+    <label class="field">Method <span>One step per line. They're numbered for you.</span><textarea id="nr-method" placeholder="Fry the paste&#10;Add stock and coconut milk">${esc(pre.method||"")}</textarea></label>
+    <label class="field">Recipe link or where to find it<input id="nr-src" value="${esc(pre.source||"")}" placeholder="https://… or e.g. Mum's cookbook, page 42" autocomplete="off"></label>
     ${ed?"":`<label class="tools" style="font-size:.9rem;color:var(--fg)"><input type="checkbox" id="nr-shop" ${pre.shop===false?"":"checked"}> Add the ingredients to my list now (pantry check first)</label>`}
     <p class="status err" id="nr-err" hidden></p>
     <div class="actions"><span class="sp"></span><button class="btn ghost" type="button" id="nr-cancel">Cancel</button><button class="btn" type="button" id="nr-save">${ed?"Save changes":"Save recipe"}</button></div>`);
   if(!pre.name)$("nr-name").focus();
   $("nr-cancel").onclick=ed?()=>openRecipe(state.recipes.indexOf(ed)):closeSheet;
   if(sample)recipeSources();
+  // steps are numbered as you go; links typed in the method move to the field below
+  $("nr-method").onchange=e=>{const sp=splitMethod(e.target.value);e.target.value=sp.method;
+    const s=$("nr-src"); sp.source.forEach(l=>{if(!s.value.split("\n").includes(l))s.value=s.value.trim()?s.value.trim()+" · "+l:l;});};
   $("nr-save").onclick=()=>{
     const err=$("nr-err"), name=$("nr-name").value.trim();
     if(!name){err.hidden=false;err.textContent="Give the recipe a name.";$("nr-name").focus();return;}
@@ -1307,7 +1418,8 @@ function newRecipe(pre){
       if(k<0)r.ingredients.push(g); else r.ingredients[k].qty=(r.ingredients[k].qty||1)+(g.qty||1);
     });
     const meth=$("nr-method").value.trim();
-    if(meth)r.notes=r.notes?r.notes+"\n\n"+meth:meth;
+    if(meth)r.notes=r.notes?r.notes+"\n"+meth:meth;
+    const src=$("nr-src").value.trim(); if(src&&!String(r.source||"").includes(src))r.source=r.source?r.source+"\n"+src:src;
     save(); render();
     const idx=state.recipes.indexOf(r);
     const missing=r.ingredients.filter(g=>ingPrice(g)==null);
@@ -1331,7 +1443,7 @@ function saveEdit(r,name,err){
     if(!same){const o=old.find(x=>norm(x.name)===norm(g.name));if(o)g={...o,name:g.name,qty:g.qty,note:g.note};}
     const d=out.find(x=>norm(x.name)===norm(g.name)); if(d)d.qty=(d.qty||1)+(g.qty||1); else out.push(g);
   });
-  r.ingredients=out; r.notes=$("nr-method").value.trim();
+  r.ingredients=out; r.notes=$("nr-method").value.trim(); r.source=$("nr-src").value.trim();
   save(); render();
   const missing=out.filter(g=>ingPrice(g)==null);
   if(sample&&missing.length)estimateItems(missing);
@@ -1372,10 +1484,16 @@ const pcPrice=x=>{const st=x.choice==="ww"||x.choice==="add"?"ww":"aldi";
    and every ingredient is matched against the list first so it's added to the existing line, never a second one. */
 async function pantryCheck(k){
   const r=state.recipes[k]; if(!r)return;
+  // amounts from the recipe become shopping amounts in grams
+  if(sample&&r.ingredients.some(g=>!(g.shop&&g.shop.sig===shopSig(g)&&g.shop.ai))){
+    openSheet(`<h2>Add ${esc(r.name)}</h2><p class="status">Working out amounts in grams…</p>`);
+    await shopForms(r.ingredients); save(); if(scrim.hidden)return;
+  }else await shopForms(r.ingredients);
+  const ings=r.ingredients.map(shopView);
   const live=()=>state.items.filter(i=>!i.done);
   const match=new Map(); // ingredient -> the list item it is the same as
-  r.ingredients.forEach(g=>{const it=live().find(i=>norm(i.name)===norm(g.name))||findDup(g.name);if(it)match.set(g,it);});
-  const loose=r.ingredients.filter(g=>!match.has(g));
+  ings.forEach(g=>{const it=live().find(i=>norm(i.name)===norm(g.name))||findDup(g.name);if(it)match.set(g,it);});
+  const loose=ings.filter(g=>!match.has(g));
   if(sample&&loose.length&&state.items.length){
     openSheet(`<h2>Add ${esc(r.name)}</h2><p class="status">Checking your list so nothing is doubled up…</p>`);
     try{
@@ -1390,7 +1508,7 @@ ${list.map((i,j)=>`${j}. ${i.name}${i.note?" ("+i.note+")":""}`).join("\n")}`,{m
     }catch(e){} // the exact check above still stands
     if(scrim.hidden)return; // closed while checking
   }
-  const rows=r.ingredients.map(g=>{const it=match.get(g)||null;
+  const rows=ings.map(g=>{const it=match.get(g)||null;
     const counted=!!(it&&!it.done&&it.needs&&it.needs[r.name]!=null);
     const after=it?Math.max(1,recipeSum(it)-(counted?+it.needs[r.name]:0)+(g.qty||1)+(+(it.needs||{})._own||0)):g.qty||1;
     // where it goes: one-store trip = that list; otherwise the line it's already on, or what you picked last time, or nothing yet
@@ -1420,9 +1538,9 @@ ${list.map((i,j)=>`${j}. ${i.name}${i.note?" ("+i.note+")":""}`).join("\n")}`,{m
     $("pc-ok").onclick=()=>{
       rows.filter(need).forEach(x=>{
         const g=x.g, store=tripWW()?"ww":x.choice; // a Woolies or Coles trip never puts anything on the Aldi list
-        if(!tripWW()){g.store=store;g.storePicked=true;} // remembered for next time this recipe is added
+        if(!tripWW()){g.store=store;g.storePicked=true;if(g._orig){g._orig.store=store;g._orig.storePicked=true;}} // remembered for next time this recipe is added
         const it=(x.on&&state.items.includes(x.on)?x.on:null)||findDup(g.name);
-        if(it){it.done=false;if(!tripWW()||it.store!=="aldi")it.store=store;else it.store="ww";setNeed(it,r.name,g.qty||1);
+        if(it){it.done=false;if(!tripWW()||it.store!=="aldi")it.store=store;else it.store="ww";setNeed(it,r.name,g.qty||1);if(!it.note&&g.note)it.note=g.note;
           ["aldiPrice","wwPrice","colesPrice"].forEach(f=>{if(it[f]==null&&g[f]!=null)it[f]=g[f];});}
         else{const n={id:uid(),name:g.name,note:g.note||"",qty:g.qty||1,aisle:g.aisle||guessAisle(g.name),store,aldiPrice:g.aldiPrice??null,wwPrice:g.wwPrice??null,colesPrice:g.colesPrice??null,avail:g.avail||"yes",recipes:[r.name],needs:{[r.name]:g.qty||1,_own:0},done:false};syncQty(n);state.items.push(n);}
       });
@@ -1454,7 +1572,7 @@ function isPending(id){try{return estPending.has(id);}catch(e){return false;}}
 // any item saved without a price (typed, imported, from a recipe or the assistant) gets estimated in the background
 const estPending=new Set(), estTried=new Set(); let estTimer=null;
 function queueAutoEst(){
-  if(!sample)return; clearTimeout(estTimer);
+  if(!sample)return; clearTimeout(estTimer); setTimeout(()=>{try{tidyListAmounts();}catch(e){}},800);
   estTimer=setTimeout(async()=>{
     const list=state.items.filter(i=>(priceOf(i)==null||(isColes()&&i.colesPrice==null))&&!estTried.has(i.id)&&!estPending.has(i.id)).slice(0,25);
     if(!list.length)return;
@@ -1592,7 +1710,7 @@ ${FIELDS}
 Reply with only JSON in this shape:
 {"recipe":null,"items":[{"name":"Cherry tomatoes","qty":1,"note":"250g punnet","aisle":"Fruit & veg","store":"aldi","recipes":[],"aldi":2.99,"ww":3.9,"coles":3.9,"avail":"yes"}]}
 If it is a recipe, set "recipe" to {"title":string,"method":string} with the method steps one per line (keep the original steps); otherwise null.
-qty is a whole number of packs/items (default 1). Use clean, capitalised Australian supermarket names (capsicum not bell pepper, coriander not cilantro, shallots for spring/green onions, beef mince not ground beef, prawns not shrimp, plain flour, cornflour, icing sugar, thickened cream, tomato sauce not ketchup).${src.text?"\n\n---\n"+src.text:""}`;
+qty is a whole number of packs/items (default 1). note is the amount in grams, converted from cups, spoons, pounds, ounces or kg (e.g. "900g"); liquids in ml or L. Use clean, capitalised Australian supermarket names (capsicum not bell pepper, coriander not cilantro, shallots for spring/green onions, beef mince not ground beef, prawns not shrimp, plain flour, cornflour, icing sugar, thickened cream, tomato sauce not ketchup).${src.text?"\n\n---\n"+src.text:""}`;
   try{
     const res=await sample.json(prompt,src.image?{images:[src.image],signal:ctl.signal}:{signal:ctl.signal});
     busy=false;
@@ -1670,7 +1788,7 @@ const AI_TOOLS=[
   execute:()=>({trip:state.trip||"both",totals:totals(),items:state.items.map(i=>({name:i.name,store:i.store,qty:i.qty||1,note:i.note||"",type:i.aisle,woolies_aisle:wwAisle(i)||null,price_each:priceOf(i),ticked:!!i.done,recipes:i.recipes}))})},
  {name:"get_recipes",description:"Read the saved recipes: ingredients (with quantity, size and store), method/notes, when each was last made, and whether it's part of the current fortnight and already made.",
   inputSchema:{type:"object",properties:{}},
-  execute:()=>{const sh=curShop();return state.recipes.map(r=>({name:r.name,ingredients:r.ingredients.map(aiIng),method:r.notes||"",last_made:lastMade(r)||null,
+  execute:()=>{const sh=curShop();return state.recipes.map(r=>({name:r.name,ingredients:r.ingredients.map(aiIng),method:r.notes||"",source:r.source||"",last_made:lastMade(r)||null,
     in_current_fortnight:!!(sh&&sh.recipes.includes(r.id)),made_this_fortnight:!!(sh&&madeSince(r,sh.date).length)}));}},
  {name:"add_to_list",description:"Add items to the shopping list. Items already on the list are merged (quantity raised), never duplicated.",
   inputSchema:{type:"object",properties:{items:{type:"array",items:{type:"object",properties:{
@@ -1699,24 +1817,25 @@ const AI_TOOLS=[
     save();render();aiDid.push("Changed "+it.name);return{done:`${it.name}: ${it.qty}× at ${storeName(it.store)}${it.done?", ticked":""}`};}},
  {name:"save_recipe",description:"Create or update a saved recipe with its shopping ingredients and method. This saves it to the recipe directory; it doesn't put anything on the list.",
   inputSchema:{type:"object",properties:{name:{type:"string"},ingredients:{type:"array",items:{type:"object",properties:{name:{type:"string"},qty:{type:"integer",minimum:1},note:{type:"string"},store:{type:"string",enum:["aldi","ww"]}},required:["name"]}},
-    method:{type:"string",description:"steps, one per line"},replace_ingredients:{type:"boolean",description:"true to replace the saved ingredient list instead of adding to it"}},required:["name"]},
+    method:{type:"string",description:"steps, one per line (they're numbered automatically)"},source:{type:"string",description:"link to the recipe or where to find it (book, page, person)"},replace_ingredients:{type:"boolean",description:"true to replace the saved ingredient list instead of adding to it"}},required:["name"]},
   execute:(a)=>{
     const rn=ensureRecipe(a.name), r=state.recipes.find(x=>x.name===rn);
     if(a.replace_ingredients)r.ingredients=[];
     (a.ingredients||[]).forEach(g=>{const name=auName(String(g.name||""));if(!name)return;
       const ing={name,qty:Math.max(1,Math.round(+g.qty||1)),note:g.note||"",aisle:guessAisle(name),store:g.store==="ww"?"ww":"aldi"};seedPrice(ing);
       const k=r.ingredients.findIndex(x=>norm(x.name)===norm(name)); if(k<0)r.ingredients.push(ing); else r.ingredients[k]={...r.ingredients[k],...ing};});
-    if(a.method)r.notes=String(a.method);
+    if(a.method)r.notes=String(a.method); if(a.source)r.source=String(a.source);
     save();render();aiDid.push("Saved recipe "+r.name);return{done:`${r.name} saved with ${r.ingredients.length} ingredients`};}},
  {name:"add_recipe_to_list",description:"Put a saved recipe's ingredients on the shopping list for the next shop, leaving off anything in 'skip' (things already at home). Never counts the same recipe twice.",
   inputSchema:{type:"object",properties:{recipe:{type:"string"},skip:{type:"array",items:{type:"string"}}},required:["recipe"]},
-  execute:(a)=>{
+  execute:async(a)=>{
     const r=aiFindRecipe(a.recipe); if(!r)return{error:`No saved recipe called "${a.recipe}".`};
     const skip=(a.skip||[]).map(norm), out=[];
-    r.ingredients.forEach(g=>{
+    await shopForms(r.ingredients);
+    r.ingredients.map(shopView).forEach(g=>{
       if(skip.includes(norm(g.name)))return;
       const it=findDup(g.name);
-      if(it){it.done=false;setNeed(it,r.name,g.qty||1);out.push(`${it.name} ${it.qty}×`);}
+      if(it){it.done=false;setNeed(it,r.name,g.qty||1);if(!it.note&&g.note)it.note=g.note;out.push(`${it.name} ${it.qty}×`);}
       else{const x={id:uid(),name:g.name,note:g.note||"",qty:g.qty||1,aisle:g.aisle||guessAisle(g.name),store:g.store||"aldi",aldiPrice:g.aldiPrice??null,wwPrice:g.wwPrice??null,colesPrice:g.colesPrice??null,avail:g.avail||"yes",recipes:[r.name],needs:{[r.name]:g.qty||1,_own:0},done:false};
         seedPrice(x);syncQty(x);state.items.push(x);out.push(`${x.name} ${x.qty}×`);}
     });
@@ -2015,7 +2134,7 @@ function applySnap(col,snap){
   // gone from the shared list (someone else removed it)
   for(let k=arr.length-1;k>=0;k--){const o=arr[k];if(synced[col][o.id]!==undefined&&!seen.has(o.id)){delete synced[col][o.id];arr.splice(k,1);}}
   if(col==="items")arr.sort((a,b)=>(a.t||0)-(b.t||0));
-  arr.forEach(o=>{if(col==="items"){o.recipes=o.recipes||[];if(!o.needs){o.needs={_own:o.qty||1};}toTwoPrices(o);}else if(col==="recipes"){o.ingredients=o.ingredients||[];o.notes=o.notes||"";o.ingredients.forEach(toTwoPrices);}else if(col==="shops"){o.recipes=o.recipes||[];}});
+  arr.forEach(o=>{if(col==="items"){o.recipes=o.recipes||[];if(!o.needs){o.needs={_own:o.qty||1};}toTwoPrices(o);}else if(col==="recipes"){o.ingredients=o.ingredients||[];o.notes=o.notes||"";tidyRecipe(o);o.ingredients.forEach(toTwoPrices);}else if(col==="shops"){o.recipes=o.recipes||[];}});
   if(col!=="shops"&&shared&&!readOnly)queueSync(); // writes back any items converted to two prices
   if(col==="items"&&!readOnly)queueAutoEst(); // items added on another phone get priced too
   if(col==="shops"&&!shopsSeen){shopsSeen=true;
