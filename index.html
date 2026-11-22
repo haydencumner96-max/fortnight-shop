@@ -20,7 +20,7 @@ body{margin:0;font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif
 img{max-width:100%}
 [hidden]{display:none!important}
 </style>
-<script>window.APP_VERSION="2026.11.22-1355";</script>
+<script>window.APP_VERSION="2026.11.22-1357";</script>
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.97.0"></script>
 <script src="standalone.js"></script>
@@ -798,7 +798,6 @@ function drawRecipeResults(){
     const bits=[];
     if(made)bits.push(`Made ${ago(recent[0])}${recent.length>1?` · ${recent.length}× this fortnight`:""}`);
     bits.push(`${r.ingredients.length} ingredient${r.ingredients.length===1?"":"s"}`);
-    if(r.ingredients.some(g=>ingPrice(g)!=null))bits.push("~"+money(recipeCost(r)));
     if(onList&&!made)bits.push(`${onList} on list`);
     if(!made&&lastMade(r))bits.push(`last made ${dayName(lastMade(r))}`);
     return `<li class="rrow">
@@ -944,7 +943,7 @@ function openRecipe(idx){
       ${madeRecently(r).length?`<button type="button" class="link" id="rs-again">Made it again today</button>`:""}
       <span class="note">${lastMade(r)?(madeRecently(r).length>1?`${madeRecently(r).length}× this fortnight`:madeRecently(r).length?"":`Last made ${dayName(lastMade(r))}`):"Not made yet"}</span>
     </div>
-    <p class="note">${onList}/${r.ingredients.length} on list${r.ingredients.some(g=>ingPrice(g)!=null)?" · about "+money(recipeCost(r)):""} · Woolworths items outlined in brown · ✓ already on the list</p>
+    <p class="note">${onList}/${r.ingredients.length} on list · Woolworths items outlined in brown · ✓ already on the list</p>
     <div class="ing">${r.ingredients.length?r.ingredients.map((g,gi)=>{const it=state.items.find(i=>norm(i.name)===norm(g.name));
       return `<span class="ingchip ${g.store==="ww"?"w":""} ${it&&it.done?"d":""}">${it?"✓ ":""}${g.qty>1?g.qty+"× ":""}${esc(g.name)}<button class="x" type="button" data-ingdel="${gi}" aria-label="Remove ${esc(g.name)} from recipe">×</button></span>`}).join(""):`<span>No ingredients saved yet</span>`}</div>
     <form class="newrec" id="rs-ingform"><input id="rs-ing" placeholder="Add an ingredient…" autocomplete="off" aria-label="New ingredient"><button class="btn ghost" type="submit">Save</button></form>
@@ -1698,7 +1697,7 @@ const AI_TOOLS=[
  {name:"get_recipes",description:"Read the saved recipes: ingredients (with quantity, size and store), method/notes, when each was last made, and whether it's part of the current fortnight and already made.",
   inputSchema:{type:"object",properties:{}},
   execute:()=>{const sh=curShop();return state.recipes.map(r=>({name:r.name,ingredients:r.ingredients.map(aiIng),method:r.notes||"",last_made:lastMade(r)||null,
-    in_current_fortnight:!!(sh&&sh.recipes.includes(r.id)),made_this_fortnight:!!(sh&&madeSince(r,sh.date).length),est_cost:Math.round(recipeCost(r)*100)/100}));}},
+    in_current_fortnight:!!(sh&&sh.recipes.includes(r.id)),made_this_fortnight:!!(sh&&madeSince(r,sh.date).length)}));}},
  {name:"add_to_list",description:"Add items to the shopping list. Items already on the list are merged (quantity raised), never duplicated.",
   inputSchema:{type:"object",properties:{items:{type:"array",items:{type:"object",properties:{
     name:{type:"string",description:"Australian supermarket name, capitalised"},qty:{type:"integer",minimum:1,description:"packs/items to buy"},
