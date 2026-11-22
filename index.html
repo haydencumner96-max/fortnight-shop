@@ -20,7 +20,7 @@ body{margin:0;font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif
 img{max-width:100%}
 [hidden]{display:none!important}
 </style>
-<script>window.APP_VERSION="2026.11.13-0811";</script>
+<script>window.APP_VERSION="2026.11.22-1355";</script>
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.97.0"></script>
 <script src="standalone.js"></script>
@@ -115,6 +115,14 @@ li input:checked::after,.rv input:checked::after{content:"";width:6px;height:11p
 .newrec{display:flex;gap:6px}
 .newrec input{flex:1;min-width:0}
 .recipe h3 input{font:inherit;font-family:var(--display);font-size:1.15rem;font-weight:700;border:0;border-bottom:1px dashed var(--line);background:transparent;color:var(--fg);padding:2px 0;min-width:0;flex:1}
+.fbox{margin-top:12px}
+.fbox ul{border-color:var(--rec)}
+.fbox .legend{margin:6px 0 0}
+.sheet .fbox{margin:0;padding:10px 12px;border:1px solid var(--rec);border-radius:12px;background:var(--rec-soft)}
+.sheet .fbox h2{margin:0 0 4px;font-size:.75rem;color:var(--rec)}
+.sheet .fbox .note{margin:0}
+.fmark{width:22px;height:22px;flex:none;border:2px solid var(--muted);border-radius:6px;display:grid;place-items:center;font-size:.8rem;color:var(--surface)}
+.fmark.on{background:var(--rec);border-color:var(--rec)}
 .seg.cats{display:flex;flex-wrap:wrap;gap:4px;margin-top:10px}
 .seg.cats button{flex:0 0 auto;white-space:nowrap;padding:8px 12px}
 .seg.cats button[aria-pressed="true"]{background:var(--surface);color:var(--fg);font-weight:700;box-shadow:0 0 0 1px var(--line)}
@@ -739,7 +747,7 @@ ${list.map((r,k)=>`${k}. ${r.name}${r.ingredients.length?" ("+r.ingredients.slic
 }
 let recCat="all";
 function renderRecipes(){
-  $("list").innerHTML=`<section class="rsearch">
+  $("list").innerHTML=fortnightBox()+`<section class="rsearch">
       <input id="rec-search" type="search" placeholder="Search recipes or ingredients…" autocomplete="off" aria-label="Search recipes" value="${esc(recipeQuery)}">
     </section>
     <div class="seg cats" id="rec-cats">${[["all","All"],...CATS].map(([v,l])=>`<button type="button" data-cat="${v}" aria-pressed="${recCat===v}">${l}</button>`).join("")}</div>
@@ -751,10 +759,15 @@ function renderRecipes(){
     $("rec-cats").querySelectorAll("[data-cat]").forEach(x=>x.setAttribute("aria-pressed",x===b));drawRecipeResults();};
   sortCats();
   $("rec-form").onsubmit=e=>{e.preventDefault();newRecipe({name:$("rec-input").value.trim()});};
+  const fb=$("list").querySelector(".fbox");
+  if(fb)fb.onclick=e=>{if(e.target.id==="fb-made"){state.view="made";madeView="current";save();render();scrollTo({top:0});return;}
+    const b=e.target.closest("[data-open]");if(b)openRecipe(+b.dataset.open);};
 }
 /* recipes you've cooked: each recipe keeps the dates it was made; a date counts for 14 days */
 const DAY=86400000;
-const madeRecently=r=>(r.made||[]).filter(d=>Date.now()-Date.parse(d)<14*DAY).sort().reverse();
+// "made" means made in the current fortnight: ticks stay until you start the next one
+const madeRecently=r=>{const sh=typeof curShop==="function"&&curShop();
+  return(r.made||[]).filter(d=>sh?d>=sh.date:Date.now()-Date.parse(d)<14*DAY).sort().reverse();};
 const lastMade=r=>(r.made||[]).slice().sort().pop();
 const dayName=d=>new Date(d).toLocaleDateString("en-AU",{weekday:"short",day:"numeric",month:"short"});
 function ago(d){
@@ -807,7 +820,22 @@ const shopRecipes=()=>{const sh=curShop();return sh?sh.recipes.map(id=>state.rec
 const madeSince=(r,since)=>(r.made||[]).filter(d=>d>=since).sort().reverse();
 const unmadeInShop=()=>{const sh=curShop();return sh?shopRecipes().filter(r=>!madeSince(r,sh.date).length):[];};
 // a recipe put on the shopping list shows straight away in this fortnight's Made tab
-function addToFortnight(r){const sh=curShop();if(r&&sh&&!sh.recipes.includes(r.id))sh.recipes.push(r.id);}
+// the Made list is held as it is until "Start next fortnight"; recipes on the shopping list move across then
+function addToFortnight(r){}
+// this fortnight's recipes and whether each is made, shown wherever you add recipes to the next list
+function fortnightBox(compact){
+  const sh=curShop(), rs=shopRecipes(); if(!sh||!rs.length)return"";
+  const st=rs.map(r=>({r,idx:state.recipes.indexOf(r),hit:madeSince(r,sh.date)[0]}))
+    .sort((a,b)=>(!!a.hit-!!b.hit)||a.r.name.localeCompare(b.r.name));
+  const n=st.filter(x=>x.hit).length;
+  const head=`<h2><span>This fortnight · ${n} of ${rs.length} made</span></h2>`;
+  if(compact)return `<div class="fbox">${head}<p class="note">${st.map(x=>`${x.hit?"✓":"○"} ${esc(x.r.name)}`).join(" · ")}</p></div>`;
+  return `<section class="fbox">${head}<ul>${st.map(x=>`<li class="rrow"><button type="button" data-open="${x.idx}">
+    <span class="fmark ${x.hit?"on":""}" aria-hidden="true">${x.hit?"✓":""}</span>
+    <span class="txt"><span class="name">${esc(x.r.name)}</span><span class="note">${catName(catOf(x.r))} · ${x.hit?"Made "+ago(x.hit):"Not made yet"}</span></span>
+    <span class="chev" aria-hidden="true">›</span></button></li>`).join("")}</ul>
+    <p class="legend">Shopped ${dayName(sh.date)}. Ticks stay until you start the next fortnight. Tick recipes off in the <button class="link" type="button" id="fb-made">Made</button> tab.</p></section>`;
+}
 function recipesOnList(){
   const ids=new Set();
   state.items.forEach(i=>(i.recipes||[]).forEach(n=>{const r=state.recipes.find(x=>x.name===n);if(r)ids.add(r.id);}));
@@ -855,8 +883,10 @@ function renderMade(){
   const inShop=sh.recipes.map(id=>state.recipes.find(r=>r.id===id)).filter(Boolean);
   const rows=inShop.map(r=>({r,idx:state.recipes.indexOf(r),hits:madeIn(r,sh,end)}));
   const others=state.recipes.filter(r=>!inShop.includes(r)).sort((a,b)=>a.name.localeCompare(b.name));
-  const made=rows.filter(x=>x.hits.length).sort((a,b)=>b.hits[0].localeCompare(a.hits[0]));
-  const todo=rows.filter(x=>!x.hits.length).sort((a,b)=>a.r.name.localeCompare(b.r.name));
+  // grouped by type; in each, still to cook first, then made (latest first)
+  const byCat=CATS.map(([c,l])=>({l,its:rows.filter(x=>catOf(x.r)===c).sort((a,b)=>
+    (!!a.hits.length-!!b.hits.length)||(a.hits.length?b.hits[0].localeCompare(a.hits[0]):a.r.name.localeCompare(b.r.name)))})).filter(g=>g.its.length);
+  const nMade=rows.filter(x=>x.hits.length).length;
   const row=({r,idx,hits})=>{
     const on=hits.length>0;
     const sub=on?`Made ${isCur?ago(hits[0]):dayName(hits[0])}${hits.length>1?` · ${hits.length}× that fortnight`:""}`
@@ -872,13 +902,12 @@ function renderMade(){
   $("list").innerHTML=`
     <div class="fnav">
       <button type="button" class="fbtn" id="mf-prev" ${pos>0?"":"disabled"} aria-label="Earlier fortnight">‹</button>
-      <div class="ftitle"><strong>${isCur?"This fortnight":"Past fortnight"}</strong><span>${range}</span></div>
+      <div class="ftitle"><strong>${isCur?"This fortnight":"Past fortnight"}</strong><span>${range}${rows.length?` · ${nMade} of ${rows.length} made`:""}</span></div>
       <button type="button" class="fbtn" id="mf-next" ${pos<all.length-1?"":"disabled"} aria-label="Later fortnight">›</button>
     </div>
-    ${isCur?`<p class="legend">Tick a recipe when you cook it. Your shopping list is for the next shop. When you've done that shop, start the next fortnight and its recipes move here.</p>`
+    ${isCur?`<p class="legend">Tick a recipe when you cook it. Ticks stay until you tap <strong>Start next fortnight</strong>. Then this list resets to the recipes on your shopping list.</p>`
       :`<p class="legend">Looking back. You can still fix ticks here. <button class="link" type="button" id="mf-cur">Back to this fortnight</button></p>`}
-    ${made.length?`<section><h2><span>Made</span><span>${made.length}</span></h2><ul>${made.map(row).join("")}</ul></section>`:""}
-    ${todo.length?`<section><h2><span>${isCur?"Still to cook":"Not made"}</span><span>${todo.length}</span></h2><ul>${todo.map(row).join("")}</ul></section>`:""}
+    ${byCat.map(g=>`<section><h2><span>${g.l}</span><span>${g.its.filter(x=>x.hits.length).length}/${g.its.length} made</span></h2><ul>${g.its.map(row).join("")}</ul></section>`).join("")}
     ${!rows.length?`<p class="empty">No recipes on this fortnight. Add any you bought for below.</p>`:""}
     <section class="addshop">${others.length?`<label class="field">${isCur?"Cooking something else?":"Cooked something else that fortnight?"}
       <div class="newrec"><select id="ms-add" aria-label="Recipe to add to this fortnight"><option value="">Choose from your recipes…</option>${others.map(r=>`<option value="${esc(r.id)}">${esc(r.name)}</option>`).join("")}</select>
@@ -1398,6 +1427,7 @@ ${list.map((i,j)=>`${j}. ${i.name}${i.note?" ("+i.note+")":""}`).join("\n")}`,{m
   const draw=()=>{
     const n=rows.filter(need).length, unpicked=rows.filter(x=>!x.choice).length;
     openSheet(`<h2>Add ${esc(r.name)}</h2>
+      ${fortnightBox(true)}
       <p class="status">Check the cupboard first. Tap <strong>Have it</strong> to leave an ingredient off, or ${tripWW()?`<strong>Add</strong> to put it on the ${oneName()} list`:`<strong>Aldi</strong> or <strong>Woolies</strong>. Only ticked items are added, to the store you tick`}. Anything already on your list gets this recipe's amount added to that line, so nothing is doubled up.</p>
       <div>${rows.map((x,j)=>`<div class="rv"><span class="txt"><span class="name">${x.g.qty>1?`<span class="qty">${x.g.qty}×</span>`:""}${esc(x.g.name)}${x.g.note?` <span class="note">${esc(x.g.note)}</span>`:""}</span>
         <span class="note">${!x.choice?"Pick where to buy it":need(x)?(tripWW()?oneName():storeName(x.choice)):"Not buying"}${need(x)&&pcPrice(x)!=null?" · ~"+money(pcPrice(x)*(x.g.qty||1)):""}${x.onList?(x.counted?` · on list, ${x.on.qty||1}× already includes this recipe`:` · on list as ${x.on.qty||1}× ${norm(x.on.name)!==norm(x.g.name)?esc(x.on.name)+" ":""}${need(x)&&x.after!==(x.on.qty||1)?`→ <strong>${x.after}×</strong>`:""}`):""}</span></span>
