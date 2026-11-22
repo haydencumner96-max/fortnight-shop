@@ -20,7 +20,7 @@ body{margin:0;font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif
 img{max-width:100%}
 [hidden]{display:none!important}
 </style>
-<script>window.APP_VERSION="2026.11.22-1404";</script>
+<script>window.APP_VERSION="2026.11.22-1409";</script>
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.97.0"></script>
 <script src="standalone.js"></script>
@@ -60,7 +60,7 @@ header p{margin:4px 0 0;color:var(--muted);font-size:.9rem}
 form.add input{width:0}
 #import-btn{padding-inline:12px}
 #photo-wrap{display:contents}
-.tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:4px}
+.tabs{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:4px}
 .tab{font:inherit;font-family:var(--display);font-weight:700;border:0;border-radius:9px;padding:9px 4px;background:transparent;color:var(--muted);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:1px}
 .tab small{font-family:var(--body);font-weight:400;font-size:.72rem;white-space:nowrap}
 .tab .short{display:none}
@@ -213,7 +213,15 @@ html.sheet-open .ai-fab{display:none}
 .trip button{font:inherit;font-size:.85rem;white-space:nowrap;border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:999px;padding:7px 6px;cursor:pointer;min-height:38px}
 .trip button[aria-pressed="true"][data-trip="both"]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:700}
 .trip button[aria-pressed="true"][data-trip="ww"]{background:var(--ww-soft);border-color:var(--ww);color:var(--ww);font-weight:700}
-.trip-ww .tabs{grid-template-columns:repeat(3,minmax(0,1fr))}
+.trip-ww .tabs{grid-template-columns:repeat(4,minmax(0,1fr))}
+.tab.next[aria-pressed="true"]{background:var(--rec-soft);color:var(--rec)}
+.nrow{padding:0;gap:0}
+.nrow button.open{flex:1;min-width:0;font:inherit;color:inherit;background:transparent;border:0;text-align:left;display:flex;align-items:center;gap:10px;padding:12px 6px 12px 14px;cursor:pointer;min-height:58px}
+.nrow .txt{flex:1}.nrow .name{font-weight:700}
+.nrow .ok{color:var(--accent)}.nrow .todo{color:var(--warn)}
+.nrow .shopbtn{font:inherit;font-size:.8rem;font-weight:700;border:1px solid var(--rec);color:var(--rec);background:transparent;border-radius:999px;padding:7px 10px;cursor:pointer;white-space:nowrap;flex:none}
+.carry{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.carry button{font:inherit;font-size:.85rem;border:1px dashed var(--rec);background:transparent;color:var(--rec);border-radius:999px;padding:6px 12px;cursor:pointer}
 .from-aldi{justify-self:start;font-size:.72rem;color:var(--muted);border:1px dashed var(--line);border-radius:999px;padding:1px 8px}
 .totals{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:baseline;font-size:.85rem;color:var(--muted);font-variant-numeric:tabular-nums}
 .totals strong{color:var(--fg);font-family:var(--display);font-size:1.05rem}
@@ -322,6 +330,7 @@ html.sheet-open,html.sheet-open body{overflow:hidden}
       <button class="tab ww" id="tab-ww" data-view="ww"><span class="long">Woolworths</span><span class="short">Woolies</span><small id="count-ww"></small></button>
       <button class="tab rec" id="tab-rec" data-view="rec">Recipes<small id="count-rec"></small></button>
       <button class="tab rec" id="tab-made" data-view="made">Made<small id="count-made"></small></button>
+      <button class="tab next" id="tab-next" data-view="next">Next<small id="count-next"></small></button>
     </div>
     <label class="trip" id="trip"><span>Shopping at</span>
       <select id="trip-sel" aria-label="Where you're shopping this fortnight">
@@ -665,9 +674,10 @@ function render(){
   $("count-rec").textContent=state.recipes.length+(state.recipes.length===1?" recipe":" recipes");
   const sh=curShop(), inShop=shopRecipes();
   $("count-made").textContent=sh&&inShop.length?`${inShop.filter(r=>madeSince(r,sh.date).length).length} of ${inShop.length}`:"none yet";
-  ["aldi","ww","rec","made"].forEach(k=>$("tab-"+k).setAttribute("aria-pressed",k===v));
+  const np=nextPlan(); $("count-next").textContent=np.length?np.length+(np.length===1?" recipe":" recipes"):"plan";
+  ["aldi","ww","rec","made","next"].forEach(k=>$("tab-"+k).setAttribute("aria-pressed",k===v));
   const shop=v==="aldi"||v==="ww";
-  $("shop-tools").hidden=!shop; $("prog-wrap").hidden=v==="rec";
+  $("shop-tools").hidden=!shop; $("prog-wrap").hidden=v==="rec"||v==="next";
   const t=totals();
   const diff=(isColes()?t.total:t.wwOnly)-t.split;
   $("totals").innerHTML=tripWW()
@@ -683,6 +693,7 @@ ${t.risky?`<span class="warn">${t.risky} Aldi item${t.risky>1?"s":""} may need W
   $("list").onclick=null; $("list").onchange=null; // each view sets its own
   if(v==="rec")return renderRecipes();
   if(v==="made")return renderMade();
+  if(v==="next")return renderNext();
   const mine=state.items.filter(i=>effStore(i)===v);
   const done=mine.filter(i=>i.done).length;
   $("prog").style.width=mine.length?(done/mine.length*100)+"%":"0";
@@ -821,7 +832,20 @@ const madeSince=(r,since)=>(r.made||[]).filter(d=>d>=since).sort().reverse();
 const unmadeInShop=()=>{const sh=curShop();return sh?shopRecipes().filter(r=>!madeSince(r,sh.date).length):[];};
 // a recipe put on the shopping list shows straight away in this fortnight's Made tab
 // the Made list is held as it is until "Start next fortnight"; recipes on the shopping list move across then
-function addToFortnight(r){}
+// recipes put on the shopping list are planned for the next fortnight
+function addToFortnight(r){if(r)planNext(r.id);}
+const nextShop=()=>{let n=state.shops.find(x=>x.id==="next");if(!n){n={id:"next",date:"",recipes:recipesOnList().map(r=>r.id)};state.shops.push(n);}return n;};
+function planNext(id){const n=nextShop();if(id&&!n.recipes.includes(id))n.recipes.push(id);}
+// next fortnight = the recipes you've planned (adding a recipe to the list plans it too)
+function nextPlan(){
+  const n=state.shops.find(x=>x.id==="next"), ids=n?n.recipes.slice():recipesOnList().map(r=>r.id);
+  return ids.map(id=>state.recipes.find(r=>r.id===id)).filter(Boolean);
+}
+// how much of a recipe is already on the list
+function listCover(r){
+  const on=r.ingredients.filter(g=>state.items.some(i=>!i.done&&((i.needs&&i.needs[r.name]!=null)||norm(i.name)===norm(g.name)||(g.shop&&norm(i.name)===norm(g.shop.name))))).length;
+  return{on,all:r.ingredients.length};
+}
 // this fortnight's recipes and whether each is made, shown wherever you add recipes to the next list
 function fortnightBox(compact){
   const sh=curShop(), rs=shopRecipes(); if(!sh||!rs.length)return"";
@@ -843,7 +867,7 @@ function recipesOnList(){
 }
 function finishShop(carry){
   const nt=$("c-trip")&&$("c-trip").value; if(nt){state.trip=nt;if(nt!=="both"&&state.view==="aldi")state.view="ww";}
-  const ids=recipesOnList().map(r=>r.id);
+  const ids=nextPlan().map(r=>r.id);
   if(carry)unmadeInShop().forEach(r=>{if(!ids.includes(r.id))ids.push(r.id);});
   const now=new Date().toISOString();
   const k=state.shops.findIndex(x=>x.id==="current");
@@ -854,15 +878,16 @@ function finishShop(carry){
     state.shops[k]={...old,recipes:old.recipes.filter(id=>!moved(id)),id:"s"+Date.parse(old.date),end:now};
   }
   state.shops.push({id:"current",date:now,recipes:ids});
+  nextShop().recipes=[];
   // keep the last 26 fortnights (about a year)
-  const past=state.shops.filter(x=>x.id!=="current").sort((a,b)=>a.date.localeCompare(b.date));
+  const past=state.shops.filter(x=>x.id!=="current"&&x.id!=="next").sort((a,b)=>a.date.localeCompare(b.date));
   if(past.length>26){const drop=new Set(past.slice(0,past.length-26).map(x=>x.id));state.shops=state.shops.filter(x=>!drop.has(x.id));}
   madeView="current";
 }
 // fortnights oldest to newest, each with the date it ended (the next shop) so ticks land in the right one
 let madeView="current";
 function shopsInOrder(){
-  const list=state.shops.slice().sort((a,b)=>a.id==="current"?1:b.id==="current"?-1:a.date.localeCompare(b.date));
+  const list=state.shops.filter(x=>x.id!=="next").sort((a,b)=>a.id==="current"?1:b.id==="current"?-1:a.date.localeCompare(b.date));
   return list.map((x,k)=>({sh:x,end:x.id==="current"?null:(x.end||(list[k+1]||{}).date||null)}));
 }
 const madeIn=(r,sh,end)=>(r.made||[]).filter(d=>d>=sh.date&&(!end||d<end)).sort().reverse();
@@ -872,6 +897,53 @@ function seedShop(){
   state.shops.push({id:"current",date:new Date(2026,9,28).toISOString(),recipes:recipesOnList().map(r=>r.id)});
 }
 
+
+/* ---------- Next tab: plan the coming fortnight's recipes ---------- */
+function renderNext(){
+  const plan=nextPlan(), sh=curShop(), left=unmadeInShop().filter(r=>!plan.includes(r));
+  const others=state.recipes.filter(r=>!plan.includes(r)).sort((a,b)=>a.name.localeCompare(b.name));
+  const row=r=>{const c=listCover(r),idx=state.recipes.indexOf(r),full=c.all&&c.on>=c.all;
+    return `<li class="nrow"><button type="button" class="open" data-open="${idx}"><span class="txt"><span class="name">${esc(r.name)}</span>
+      <span class="note ${full?"ok":c.on?"":"todo"}">${!c.all?"No ingredients saved":full?"✓ Ingredients on the list":c.on?`${c.on} of ${c.all} ingredients on the list`:"Ingredients not on the list yet"}</span></span></button>
+      ${c.all&&!full?`<button type="button" class="shopbtn" data-shop="${idx}">Add to list</button>`:""}
+      <button type="button" class="mini-x" data-unplan="${idx}" aria-label="Take ${esc(r.name)} off next fortnight">×</button></li>`;};
+  const groups=CATS.map(([c,l])=>({l,its:plan.filter(r=>catOf(r)===c).sort((a,b)=>a.name.localeCompare(b.name))})).filter(g=>g.its.length);
+  $("list").innerHTML=`
+    <div class="fnav"><div class="ftitle"><strong>Next fortnight</strong><span>${plan.length?`${plan.length} recipe${plan.length===1?"":"s"} planned`:"Nothing planned yet"}${sh?` · this one started ${dayName(sh.date)}`:""}</span></div></div>
+    <p class="legend">Plan what you'll cook next fortnight. <strong>Add to list</strong> puts a recipe's ingredients on the shopping list (cupboard check first). When you tap <strong>Start next fortnight</strong>, these become the Made list.</p>
+    ${groups.map(g=>`<section><h2><span>${g.l}</span><span>${g.its.length}</span></h2><ul>${g.its.map(row).join("")}</ul></section>`).join("")}
+    ${!plan.length?`<p class="empty">Pick recipes below to start planning.</p>`:""}
+    ${left.length?`<section><h2><span>Not cooked this fortnight</span><span>${left.length}</span></h2><p class="note">Tap to carry one over to next fortnight.</p>
+      <div class="carry">${left.map(r=>`<button type="button" data-plan="${esc(r.id)}">+ ${esc(r.name)}</button>`).join("")}</div></section>`:""}
+    <section class="addshop">${others.length?`<label class="field">Add a recipe to next fortnight
+      <div class="newrec"><select id="nx-add" aria-label="Recipe to plan"><option value="">Choose from your recipes…</option>${CATS.map(([c,l])=>{const rs=others.filter(r=>catOf(r)===c);return rs.length?`<optgroup label="${l}">${rs.map(r=>`<option value="${esc(r.id)}">${esc(r.name)}</option>`).join("")}</optgroup>`:"";}).join("")}</select>
+      <button class="btn ghost" type="button" id="nx-addbtn">Plan it</button></div></label>
+      <label class="tools" style="font-size:.9rem;color:var(--fg)"><input type="checkbox" id="nx-shop" ${nextAddShop?"checked":""}> Add its ingredients to the list straight away</label>`:""}
+      <div class="actions"><button class="link" type="button" id="nx-dir">Open the recipe directory</button></div>
+    </section>`;
+  const l=$("list");
+  l.onclick=e=>{
+    const t=e.target;
+    if(t.id==="nx-dir"){state.view="rec";save();render();scrollTo({top:0});return;}
+    if(t.id==="nx-addbtn"){const id=$("nx-add").value;if(!id)return;planNext(id);save();render();
+      if(nextAddShop){const k=state.recipes.findIndex(r=>r.id===id);if(k>=0)pantryCheck(k);}return;}
+    const pl=t.closest("[data-plan]"); if(pl){planNext(pl.dataset.plan);save();render();return;}
+    const sb=t.closest("[data-shop]"); if(sb){pantryCheck(+sb.dataset.shop);return;}
+    const u=t.closest("[data-unplan]"); if(u){
+      const r=state.recipes[+u.dataset.unplan]; if(!r)return;
+      const onList=state.items.some(i=>!i.done&&i.needs&&i.needs[r.name]!=null);
+      if(onList&&!u.dataset.armed){u.dataset.armed="1";u.textContent="Remove?";u.style.width="auto";u.style.fontSize=".8rem";u.title="Also takes its ingredients off the list";return;}
+      const n=state.shops.find(x=>x.id==="next"); if(n)n.recipes=n.recipes.filter(x=>x!==r.id);
+      const gone=[];
+      state.items.forEach(i=>{if((i.needs&&i.needs[r.name]!=null)||i.recipes.includes(r.name)){dropNeed(i,r.name);
+        if(!i.recipes.length&&!(+((i.needs||{})._own)>0))gone.push(i);}}); // only there for this recipe
+      state.items=state.items.filter(i=>!gone.includes(i));
+      save();render();return;}
+    const b=t.closest("[data-open]"); if(b)openRecipe(+b.dataset.open);
+  };
+  l.onchange=e=>{if(e.target.id==="nx-shop"){nextAddShop=e.target.checked;try{localStorage.setItem("fs-next-shop",nextAddShop?"1":"0")}catch(x){}}};
+}
+let nextAddShop=true; try{nextAddShop=localStorage.getItem("fs-next-shop")!=="0";}catch(e){}
 /* ---------- Made tab: recipes from the shop you've done, ticked off as you cook ---------- */
 function renderMade(){
   const all=shopsInOrder();
@@ -1020,7 +1092,7 @@ $("add-form").onsubmit=e=>{
   openEditor(null,{id:uid(),name:v,note:"",qty:1,recipes:[],aisle:v?guessAisle(v):"Other",store:state.view,done:false});
 };
 $("new-shop").onclick=()=>{
-  const next=recipesOnList(), carry=unmadeInShop().filter(r=>!next.includes(r));
+  const next=nextPlan(), carry=unmadeInShop().filter(r=>!next.includes(r));
   $("c-recipes").innerHTML=next.length
     ?`These recipes move to the <strong>Made</strong> tab so you can tick them off as you cook: ${next.map(r=>esc(r.name)).join(", ")}.`
     :`No recipes are tagged on this list, so the Made tab will only show any you carry over or add there yourself.`;
@@ -1254,6 +1326,8 @@ function cupGrams(n){
     [/yog|cream|milk|juice|stock|water|oil|sauce/,250],[/tomato|capsicum|onion|carrot|celery|zucchini|mushroom|broccoli/,150]];
   for(const[re,g] of t)if(re.test(n))return g; return 150;
 }
+// 1000g and over shows as kg
+const fmtG=g=>g>=1000?(+(g/1000).toFixed(2))+"kg":g+"g";
 const roundG=g=>g>=1000?Math.round(g/50)*50:g>=100?Math.round(g/10)*10:Math.max(5,Math.round(g/5)*5);
 // grams from recipe wording (kg, g, lb, oz, cups, tbsp, tsp); null when there's no weight or measure in it
 function gramsFrom(text,name){
@@ -1265,10 +1339,12 @@ function gramsFrom(text,name){
 // an item's size note in grams; only rewritten when it has kg, lb, oz, cups or spoons in it
 function gramsNote(note,name){
   const n=String(note||"");
-  if(!/\d|[½¼¾⅓⅔]/.test(n)||!/\b(kg|kilos?|kilograms?|lbs?|pounds?|oz|ounces?|cups?|tbsp|tbs|tablespoons?|tsp|teaspoons?)\b/i.test(n))return n;
+  const big=n.match(/(\d+(?:\.\d+)?)\s*(?:g|grams?)\b/i);
+  if(big&&+big[1]>=1000&&!/\bkg\b/i.test(n))return n.replace(big[0],fmtG(Math.round(+big[1]))); // 2750g -> 2.75kg
+  if(!/\d|[½¼¾⅓⅔]/.test(n)||!/\b(kilos?|kilograms?|lbs?|pounds?|oz|ounces?|cups?|tbsp|tbs|tablespoons?|tsp|teaspoons?)\b/i.test(n))return n;
   const gr=gramsFrom(n,name); if(gr==null)return n;
   const box=(n.match(/\b(can|tin|jar|pack|bag|bunch|punnet|tub|bottle|box|tray)s?\b/i)||[])[0];
-  return gr+"g"+(box?" "+box.toLowerCase():"");
+  return fmtG(gr)+(box?" "+box.toLowerCase():"");
 }
 // best guess without Claude: name = words before the first amount, note = grams
 function shopFormLocal(g){
@@ -1276,7 +1352,7 @@ function shopFormLocal(g){
   const cut=nm.search(/\s(\d|[½¼¾⅓⅔])/);
   const name=cut>1?nm.slice(0,cut).replace(/[\s,(–-]+$/,""):nm;
   const gr=gramsFrom(full,name), liq=full.match(/\d+(?:\.\d+)?\s*(ml|l|litres?|liters?)\b/i);
-  const note=gr!=null?gr+"g":liq&&!/\d\s*(g|kg)\b/i.test(g.note||"")?liq[0].replace(/\s+/,""):(g.note||(cut>1?nm.slice(cut).trim():""));
+  const note=gr!=null?fmtG(gr):liq&&!/\d\s*(g|kg)\b/i.test(g.note||"")?liq[0].replace(/\s+/,""):(g.note||(cut>1?nm.slice(cut).trim():""));
   return{name:auName(name),qty:g.qty||1,note};
 }
 const shopSig=g=>`${g.name}|${g.note||""}|${g.qty||1}`;
@@ -1289,7 +1365,7 @@ async function shopForms(ings){
   if(sample){try{res=await sample.json(`These are ingredients from a recipe, being put on an Australian grocery shopping list. For each one give the shopping line:
 "name": the product to buy as a capitalised Australian supermarket name, with no amounts, preparation or cooking words (e.g. "Chicken thigh fillets 2 lb (about 900g) boneless, skinless" -> "Chicken thigh fillets"; "Fresh coriander 1 cup leaves, 1 bunch" -> "Coriander"; "Limes 3 Tbsp juice total, 2 limes" -> "Limes").
 "qty": whole number of items or packs to buy (2 for "2 limes"; 1 for one bunch, bag, bulb or pack; default 1).
-"note": the total amount in GRAMS, converted from cups, spoons, pounds, ounces or kilograms (e.g. "900g", "2750g", "30g"). Liquids in ml or L (e.g. "500ml", "2L"). Fresh produce counted by number or bunch with no weight given: its approximate weight, e.g. "about 140g". Empty only if there's nothing to go on.
+"note": the total amount in GRAMS, converted from cups, spoons, pounds or ounces (e.g. "900g", "30g"); 1000g or more in kg (e.g. "2.75kg", "1kg"). Liquids in ml or L (e.g. "500ml", "2L"). Fresh produce counted by number or bunch with no weight given: its approximate weight, e.g. "about 140g". Empty only if there's nothing to go on.
 Reply with only a JSON array in the same order: [{"name":string,"qty":number,"note":string}].
 ${need.map((g,k)=>`${k}. ${(g.qty||1)>1?g.qty+" x ":""}${g.name}${g.note?" ("+g.note+")":""}`).join("\n")}`,{modelTier:"quick"});}catch(e){}}
   need.forEach((g,k)=>{const x=Array.isArray(res)?res[k]:null;
@@ -1326,7 +1402,7 @@ async function fillRecipe(src){
       :`Below is ${src.url?"the text of the recipe page "+src.url:"a recipe the user pasted"}.`;
     const r=await sample.json(`${what} Split it into its title, shopping ingredients and method. Reply with only JSON:
 {"title":string,"ingredients":[{"name":string,"qty":number,"note":string}],"method":string}
-For ingredients: clean capitalised Australian supermarket names (capsicum not bell pepper, coriander not cilantro, shallots for spring/green onions, mince not ground meat, prawns, plain flour, cornflour, thickened cream), qty = whole number of packs/items to buy (default 1), note = the amount in grams, converted from cups, spoons, pounds, ounces or kg (e.g. "900g"; liquids in ml or L), keeping prep words out of the name. Skip water, salt and pepper. Keep the method's steps and wording, one step per line. If there is no recipe in it, reply {"title":"","ingredients":[],"method":""}.${src.text?"\n\n---\n"+src.text:""}`,
+For ingredients: clean capitalised Australian supermarket names (capsicum not bell pepper, coriander not cilantro, shallots for spring/green onions, mince not ground meat, prawns, plain flour, cornflour, thickened cream), qty = whole number of packs/items to buy (default 1), note = the amount in grams, converted from cups, spoons, pounds or ounces (e.g. "900g"; 1000g or more in kg, e.g. "2.75kg"; liquids in ml or L), keeping prep words out of the name. Skip water, salt and pepper. Keep the method's steps and wording, one step per line. If there is no recipe in it, reply {"title":"","ingredients":[],"method":""}.${src.text?"\n\n---\n"+src.text:""}`,
       src.image?{images:[src.image]}:{modelTier:"quick"});
     if(!$("nr-name"))return; // sheet was closed
     const ings=(r&&Array.isArray(r.ingredients)?r.ingredients:[]).filter(x=>x&&x.name)
@@ -1736,7 +1812,7 @@ ${FIELDS}
 Reply with only JSON in this shape:
 {"recipe":null,"items":[{"name":"Cherry tomatoes","qty":1,"note":"250g punnet","aisle":"Fruit & veg","store":"aldi","recipes":[],"aldi":2.99,"ww":3.9,"coles":3.9,"avail":"yes"}]}
 If it is a recipe, set "recipe" to {"title":string,"method":string} with the method steps one per line (keep the original steps); otherwise null.
-qty is a whole number of packs/items (default 1). note is the amount in grams, converted from cups, spoons, pounds, ounces or kg (e.g. "900g"); liquids in ml or L. Use clean, capitalised Australian supermarket names (capsicum not bell pepper, coriander not cilantro, shallots for spring/green onions, beef mince not ground beef, prawns not shrimp, plain flour, cornflour, icing sugar, thickened cream, tomato sauce not ketchup).${src.text?"\n\n---\n"+src.text:""}`;
+qty is a whole number of packs/items (default 1). note is the amount in grams, converted from cups, spoons, pounds or ounces (e.g. "900g"; 1000g or more in kg, e.g. "2.75kg"); liquids in ml or L. Use clean, capitalised Australian supermarket names (capsicum not bell pepper, coriander not cilantro, shallots for spring/green onions, beef mince not ground beef, prawns not shrimp, plain flour, cornflour, icing sugar, thickened cream, tomato sauce not ketchup).${src.text?"\n\n---\n"+src.text:""}`;
   try{
     const res=await sample.json(prompt,src.image?{images:[src.image],signal:ctl.signal}:{signal:ctl.signal});
     busy=false;
