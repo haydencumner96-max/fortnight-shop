@@ -731,7 +731,7 @@ ${list.map((r,k)=>`${k}. ${r.name}${r.ingredients.length?" ("+r.ingredients.slic
 }
 let recCat="all";
 function renderRecipes(){
-  $("list").innerHTML=fortnightBox()+`<section class="rsearch">
+  $("list").innerHTML=`<section class="rsearch">
       <input id="rec-search" type="search" placeholder="Search recipes or ingredients…" autocomplete="off" aria-label="Search recipes" value="${esc(recipeQuery)}">
     </section>
     <div class="seg cats" id="rec-cats">${[["all","All"],...CATS].map(([v,l])=>`<button type="button" data-cat="${v}" aria-pressed="${recCat===v}">${l}</button>`).join("")}</div>
@@ -780,10 +780,8 @@ function drawRecipeResults(){
     const recent=madeRecently(r), made=recent.length>0;
     const onList=r.ingredients.filter(g=>state.items.some(i=>norm(i.name)===norm(g.name))).length;
     const bits=[];
-    if(made)bits.push(`Made ${ago(recent[0])}${recent.length>1?` · ${recent.length}× this fortnight`:""}`);
     bits.push(`${r.ingredients.length} ingredient${r.ingredients.length===1?"":"s"}`);
-    if(onList&&!made)bits.push(`${onList} on list`);
-    if(!made&&lastMade(r))bits.push(`last made ${dayName(lastMade(r))}`);
+    if(r.source)bits.push(firstUrl(r.source)?"has a link":"source saved");
     return `<li class="rrow">
       <button type="button" data-open="${idx}">
       <span class="txt"><span class="name">${esc(r.name)}</span>
@@ -986,33 +984,35 @@ function renderMade(){
 const srcLinkHtml=t=>{const u=firstUrl(t);return u?`<a class="btn ghost" href="${esc(u)}" target="_blank" rel="noopener">Open the recipe page</a>`:"";};
 function openRecipe(idx){
   const r=state.recipes[idx]; if(!r)return;
+  // from the Recipes tab it's the stored recipe only; made ticks and the shopping list live in Made
+  const act=state.view!=="rec";
   const onIt=g=>state.items.find(i=>norm(i.name)===norm(g.name)||(g.shop&&norm(i.name)===norm(g.shop.name)));
   const onList=r.ingredients.filter(onIt).length;
   openSheet(`<div class="recipe-sheet">
     <h3><input id="rs-name" value="${esc(r.name)}" aria-label="Recipe name"></h3>
     <label class="tools" style="color:var(--fg)">Type <select id="rs-cat" style="font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg)">${CATS.map(([v,l])=>`<option value="${v}" ${catOf(r)===v?"selected":""}>${l}</option>`).join("")}</select></label>
-    <div class="madebar">
+    ${act?`<div class="madebar">
       <button type="button" class="btn ${madeRecently(r).length?"":"ghost"}" id="rs-made" aria-pressed="${madeRecently(r).length>0}">${madeRecently(r).length?"✓ Made "+ago(madeRecently(r)[0]):"Mark as made"}</button>
       ${madeRecently(r).length?`<button type="button" class="link" id="rs-again">Made it again today</button>`:""}
       <span class="note">${lastMade(r)?(madeRecently(r).length>1?`${madeRecently(r).length}× this fortnight`:madeRecently(r).length?"":`Last made ${dayName(lastMade(r))}`):"Not made yet"}</span>
-    </div>
-    <p class="note">${onList}/${r.ingredients.length} on list · Woolworths items outlined in brown · ✓ already on the list</p>
-    <div class="ing">${r.ingredients.length?r.ingredients.map((g,gi)=>{const it=onIt(g);
-      return `<span class="ingchip ${g.store==="ww"?"w":""} ${it&&it.done?"d":""}">${it?"✓ ":""}${g.qty>1?g.qty+"× ":""}${esc(g.name)}<button class="x" type="button" data-ingdel="${gi}" aria-label="Remove ${esc(g.name)} from recipe">×</button></span>`}).join(""):`<span>No ingredients saved yet</span>`}</div>
+    </div>`:""}
+    ${act?`<p class="note">${onList}/${r.ingredients.length} on list · Woolworths items outlined in brown · ✓ already on the list</p>`:`<p class="note">${r.ingredients.length} ingredient${r.ingredients.length===1?"":"s"}</p>`}
+    <div class="ing">${r.ingredients.length?r.ingredients.map((g,gi)=>{const it=act?onIt(g):null;
+      return `<span class="ingchip ${act&&g.store==="ww"?"w":""} ${it&&it.done?"d":""}">${it?"✓ ":""}${g.qty>1?g.qty+"× ":""}${esc(g.name)}${!act&&g.note?` <span class="note">${esc(g.note)}</span>`:""}<button class="x" type="button" data-ingdel="${gi}" aria-label="Remove ${esc(g.name)} from recipe">×</button></span>`}).join(""):`<span>No ingredients saved yet</span>`}</div>
     <form class="newrec" id="rs-ingform"><input id="rs-ing" placeholder="Add an ingredient…" autocomplete="off" aria-label="New ingredient"><button class="btn ghost" type="submit">Save</button></form>
     <label class="field">Method <span>One step per line. They're numbered for you.</span><textarea id="rs-notes" placeholder="Fry the paste&#10;Add stock and coconut milk">${esc(r.notes)}</textarea></label>
     <label class="field">Recipe link or where to find it<input id="rs-src" value="${esc(r.source||"")}" placeholder="https://… or e.g. Mum's cookbook, page 42" autocomplete="off"></label>
     <div id="rs-srclink">${srcLinkHtml(r.source)}</div>
     <div class="actions"><button class="link" id="rs-del" type="button">Delete recipe</button><span class="sp"></span>
       <button class="btn ghost" id="rs-edit" type="button">Edit</button>
-      <button class="btn" id="rs-add" type="button" ${r.ingredients.length?"":"disabled"}>Add to list</button></div>
+      ${act?`<button class="btn" id="rs-add" type="button" ${r.ingredients.length?"":"disabled"}>Add to list</button>`:""}</div>
   </div>`);
   const refresh=()=>{save();render();openRecipe(state.recipes.indexOf(r));};
   $("rs-notes").oninput=e=>{r.notes=e.target.value;save();};
   $("rs-notes").onchange=e=>{r.notes=e.target.value;tidyRecipe(r);e.target.value=r.notes;$("rs-src").value=r.source;$("rs-srclink").innerHTML=srcLinkHtml(r.source);save();};
   $("rs-src").oninput=e=>{r.source=e.target.value;$("rs-srclink").innerHTML=srcLinkHtml(r.source);save();};
   $("rs-cat").onchange=e=>{r.cat=e.target.value;delete r.catGuess;save();render();};
-  $("rs-made").onclick=()=>{toggleMade(r,!madeRecently(r).length);render();openRecipe(state.recipes.indexOf(r));};
+  if($("rs-made"))$("rs-made").onclick=()=>{toggleMade(r,!madeRecently(r).length);render();openRecipe(state.recipes.indexOf(r));};
   if($("rs-again"))$("rs-again").onclick=()=>{toggleMade(r,true);render();openRecipe(state.recipes.indexOf(r));};
   $("rs-name").onchange=e=>{
     const nv=e.target.value.trim();
@@ -1031,7 +1031,7 @@ function openRecipe(idx){
     state.shops.forEach(sh=>sh.recipes=sh.recipes.filter(x=>x!==r.id));
     state.recipes.splice(state.recipes.indexOf(r),1); save(); closeSheet(); render();
   };
-  $("rs-add").onclick=()=>pantryCheck(state.recipes.indexOf(r));
+  if($("rs-add"))$("rs-add").onclick=()=>pantryCheck(state.recipes.indexOf(r));
   $("rs-edit").onclick=()=>editRecipe(state.recipes.indexOf(r));
 }
 
@@ -1476,7 +1476,7 @@ function newRecipe(pre){
     <label class="field">Ingredients, one per line<textarea id="nr-ings" placeholder="2 x Coconut milk 400ml&#10;Laksa paste&#10;Hokkien noodles 450g&#10;Lemongrass">${esc(pre.ings||"")}</textarea></label>
     <label class="field">Method <span>One step per line. They're numbered for you.</span><textarea id="nr-method" placeholder="Fry the paste&#10;Add stock and coconut milk">${esc(pre.method||"")}</textarea></label>
     <label class="field">Recipe link or where to find it<input id="nr-src" value="${esc(pre.source||"")}" placeholder="https://… or e.g. Mum's cookbook, page 42" autocomplete="off"></label>
-    ${ed?"":`<label class="tools" style="font-size:.9rem;color:var(--fg)"><input type="checkbox" id="nr-shop" ${pre.shop===false?"":"checked"}> Add the ingredients to my list now (pantry check first)</label>`}
+    ${ed||state.view==="rec"?"":`<label class="tools" style="font-size:.9rem;color:var(--fg)"><input type="checkbox" id="nr-shop" ${pre.shop===false?"":"checked"}> Add the ingredients to my list now (pantry check first)</label>`}
     <p class="status err" id="nr-err" hidden></p>
     <div class="actions"><span class="sp"></span><button class="btn ghost" type="button" id="nr-cancel">Cancel</button><button class="btn" type="button" id="nr-save">${ed?"Save changes":"Save recipe"}</button></div>`);
   if(!pre.name)$("nr-name").focus();
@@ -1504,7 +1504,7 @@ function newRecipe(pre){
     const idx=state.recipes.indexOf(r);
     const missing=r.ingredients.filter(g=>ingPrice(g)==null);
     if(sample&&missing.length)estimateItems(missing); // fills in prices in the background
-    if($("nr-shop").checked&&r.ingredients.length)pantryCheck(idx); else openRecipe(idx);
+    if($("nr-shop")&&$("nr-shop").checked&&r.ingredients.length)pantryCheck(idx); else openRecipe(idx);
   };
 }
 
